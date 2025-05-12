@@ -1,0 +1,7 @@
+Hi {{ display_name }},
+
+Your vendor account on {{ app_name }} is live! You can now create businesses
+and start publishing your catalog.
+
+Happy selling,
+The {{ app_name }} team

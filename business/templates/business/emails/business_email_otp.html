@@ -1,0 +1,71 @@
+<!-- business/emails/business_email_otp.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>{{ app_name }} – Verify your business e-mail</title>
+
+  <!-- ↑ most e-mail clients ignore <style> in <head>,
+       so we include key styles inline below -->
+</head>
+
+<body style="margin:0;padding:0;background:#f5f6f7;font-family:Arial,Helvetica,sans-serif;">
+  <!-- wrapper -->
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+    <tr>
+      <td align="center" style="padding:32px 8px;">
+        <table width="600" cellpadding="0" cellspacing="0" role="presentation"
+               style="background:#ffffff;border-radius:8px;overflow:hidden;">
+          <!-- header banner -->
+          <tr>
+            <td style="background:#4f46e5;padding:24px 32px;color:#ffffff;">
+              <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:0.5px;">
+                {{ app_name }}
+              </h1>
+            </td>
+          </tr>
+
+          <!-- main body -->
+          <tr>
+            <td style="padding:32px;">
+              <p style="font-size:16px;margin:0 0 12px;">
+                Hello {{ user.first_name|default:user.email }},
+              </p>
+
+              <p style="font-size:16px;margin:0 0 16px;">
+                Thanks for creating (or updating) a business on <strong>{{ app_name }}</strong>.
+                To verify the e-mail address you provided, please enter the code below
+                in the application:
+              </p>
+
+              <p style="text-align:center;margin:24px 0;">
+                <span style="display:inline-block;padding:16px 24px;
+                             font-size:32px;font-weight:700;letter-spacing:4px;
+                             background:#f3f4f6;border-radius:6px;color:#111;">
+                  {{ code }}
+                </span>
+              </p>
+
+              <p style="font-size:14px;color:#555;margin:0 0 24px;">
+                This code expires at <strong>{{ expires_at|date:"Y-m-d H:i" }}</strong>.
+              </p>
+
+              <p style="font-size:14px;color:#888;margin:0;">
+                If you did not attempt to register a business,
+                you can safely ignore this message.
+              </p>
+            </td>
+          </tr>
+
+          <!-- footer -->
+          <tr>
+            <td style="background:#f9fafb;padding:16px 32px;font-size:12px;color:#666;text-align:center;">
+              © {{ app_name }} – All rights reserved.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

@@ -1,0 +1,1 @@
+web: gunicorn emi_skeleton.wsgi

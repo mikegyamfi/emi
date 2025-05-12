@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ app_name }} – E‑mail Verification</title>
+    <style>
+      body { font-family: Arial, sans-serif; background:#f8f9fa; margin:0; padding:0; }
+      .wrapper { max-width:600px; margin:40px auto; background:#ffffff; padding:32px; border-radius:8px; }
+      .code { font-size:32px; font-weight:600; letter-spacing:4px; color:#111; }
+      footer { margin-top:24px; font-size:12px; color:#666; }
+    </style>
+  </head>
+  <body>
+    <div class="wrapper">
+      <h2>Hello {{ otp.user.email }},</h2>
+      <p>Thanks for creating an account on <strong>{{ app_name }}</strong>.</p>
+
+      <p>Your one‑time verification code is:</p>
+      <p class="code">{{ code }}</p>
+
+      <p><small>This code expires at {{ expires_at|date:"Y‑m‑d H:i" }} UTC.</small></p>
+
+      <p>If you did not attempt to register, you can safely ignore this message.</p>
+
+      <footer>
+        © {{ app_name }} – All rights reserved.
+      </footer>
+    </div>
+  </body>
+</html>

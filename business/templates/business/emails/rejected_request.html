@@ -1,0 +1,24 @@
+<!-- rejected.html -->
+<!doctype html>
+<html>
+  <body style="font-family:Arial,Helvetica,sans-serif;line-height:1.5">
+    <p>Hello,</p>
+    <p>
+      Unfortunately we couldn&rsquo;t approve your business
+      <strong>{{ biz }}</strong> at this time.
+    </p>
+    {% if note %}
+    <p>
+      <strong>Reason:</strong><br>
+      {{ note|linebreaks }}
+    </p>
+    {% endif %}
+    <p>
+      You can update your submission and resubmit for review any time.
+      If you have questions, reply to this e-mail and we&rsquo;ll be happy to help.
+    </p>
+    <p>
+      &mdash; The {{ app_name|default:"EMI" }} compliance team
+    </p>
+  </body>
+</html>
