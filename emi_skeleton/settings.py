@@ -109,6 +109,7 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 MIDDLEWARE = [
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     "corsheaders.middleware.CorsMiddleware",
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -173,6 +174,7 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'assets'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -208,3 +210,56 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 31536000  # One year in seconds
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
+
+
+
+# -------------------------
+# AWS S3 Settings (For production)
+# -------------------------
+
+# INSTALLED_APPS += ['storages']
+
+# AWS settings
+# AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID')
+# AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY')
+# AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME')
+
+# Static files (CSS, JavaScript, Images)
+# AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='us-east-1')  # e.g., 'us-west-2'
+# AWS_S3_SIGNATURE_VERSION = 's3v4'
+
+# AWS S3 Static Files Settings
+# STATICFILES_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+# AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com'
+# STATIC_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/static/'
+
+# Media files settings
+# DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+# MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/media/'
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
