@@ -17,6 +17,7 @@ from rest_framework.response import Response
 from account.models import CustomUser, VendorProfile
 from account.serializers_vendor import VendorProfileSerializer
 from business.serializers import BusinessBriefSerializer
+from checkout_processing.models import DirectOrder
 from core.lookup_views import AutocompleteMixin
 from core.response import ok, fail  # your helper
 from account.permissions import IsVendor  # «seller» guard
@@ -72,7 +73,7 @@ class _ServiceFilter(_ProductFilter):
     Extends the generic product filter with every lookup that makes sense
     for a Service:
 
-    • category           – id
+    • category – id
     • is_active          – bool
     • is_remote          – bool
     • pricing_type       – id
@@ -455,6 +456,22 @@ class SellerProductViewSet(viewsets.ModelViewSet):
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return ok("OK", serializer.data)
+
+
+    def destroy(self, request, *args, **kwargs):
+        product = self.get_object()
+
+        has_pending = DirectOrder.objects.filter(
+            product=product,
+            status__in=['pending']
+        ).exists()
+
+        if has_pending:
+            return fail(
+                "Cannot delete product while there are pending orders."
+            )
+
+        return super().destroy(request, *args, **kwargs)
 
 
 @extend_schema(tags=["Product Seller Services"])

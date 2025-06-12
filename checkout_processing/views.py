@@ -117,6 +117,16 @@ class VendorOrderViewSet(
         order.save(update_fields=["status"])
         return ok("Order marked as completed")
 
+    @action(detail=True, methods=["post"], url_path="cancel-order")
+    def cancel_order(self, request, pk=None):
+        order = self.get_object()
+        if order.status == "canceled":
+            return fail("Order is already canceled", status=400)
+
+        order.status = "canceled"
+        order.save(update_fields=["status"])
+        return ok("Order Canceled")
+
 
 class DirectBookingViewSet(
     mixins.CreateModelMixin,

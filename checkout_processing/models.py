@@ -46,6 +46,7 @@ class DirectOrder(models.Model):
     STATUS_CHOICES = [
         ("pending", "Pending"),
         ("completed", "Completed"),
+        ("canceled", "Canceled"),
     ]
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
 

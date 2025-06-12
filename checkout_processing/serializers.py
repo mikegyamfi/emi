@@ -122,7 +122,6 @@ class DirectOrderSerializer(serializers.ModelSerializer):
             "google_map_url"
         )
 
-    # expose unit_price too if you like
     unit_price = serializers.DecimalField(
         max_digits=10,
         decimal_places=2,
