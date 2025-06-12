@@ -18,11 +18,8 @@ class DirectOrderViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet
 ):
-    """
-    POST   /orders/direct/       → place a new single-product order
-    GET    /orders/direct/       → list your orders
-    GET    /orders/direct/{id}/  → retrieve one
-    """
+    lookup_field = "order_id"
+
     permission_classes = (IsAuthenticated,)
     queryset = DirectOrder.objects.all()
 
@@ -51,6 +48,7 @@ class DirectOrderViewSet(
         try:
             order = serializer.save()
         except ValidationError as exc:
+            print(exc)
             return fail(str(exc), status=status.HTTP_400_BAD_REQUEST)
         return ok("Order placed", DirectOrderSerializer(order).data, status=status.HTTP_201_CREATED)
 
@@ -75,10 +73,8 @@ class VendorOrderViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet
 ):
-    """
-    GET /orders/vendor/        → list all orders for your products
-    GET /orders/vendor/{id}/   → retrieve one
-    """
+    lookup_field = "order_id"
+
     permission_classes = (IsAuthenticated, IsVendor)
     serializer_class = DirectOrderSerializer
 
@@ -134,11 +130,8 @@ class DirectBookingViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet
 ):
-    """
-    POST   /bookings/              → place a new booking
-    GET    /bookings/              → list *your* bookings
-    GET    /bookings/{pk}/         → retrieve one of *your* bookings
-    """
+    lookup_field = "booking_id"
+
     permission_classes = (IsAuthenticated,)
     queryset = DirectBooking.objects.all()
 
@@ -190,10 +183,8 @@ class ProviderBookingViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet
 ):
-    """
-    GET /bookings/provider/       → list all bookings for *your* services
-    GET /bookings/provider/{pk}/  → retrieve one
-    """
+    lookup_field = "booking_id"
+
     permission_classes = (IsAuthenticated, IsVendor)
     serializer_class = DirectBookingSerializer
 
