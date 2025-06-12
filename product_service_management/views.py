@@ -410,7 +410,8 @@ class SellerProductViewSet(viewsets.ModelViewSet):
             self.perform_create(serializer)
         except serializers.ValidationError as exc:
             print(exc)
-            return fail("Validation error", exc.detail)
+            print("validation did not go through")
+            return fail("Validation error", exc)
         return ok("Product created successfully", serializer.data)
 
     def update(self, request, *args, **kwargs):

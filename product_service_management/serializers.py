@@ -346,7 +346,7 @@ class _ProductBaseSerializer(serializers.ModelSerializer):
 
     # ------- create / update ------------------------------------
     def create(self, validated_data):
-        # 1) pop off anything that can't go into .create()
+        print("entered into create")
         tags = validated_data.pop("tags", [])
         attrs = validated_data.pop("attributes", [])
         images = validated_data.pop("new_images", [])
@@ -354,15 +354,18 @@ class _ProductBaseSerializer(serializers.ModelSerializer):
         with transaction.atomic():
             # 2) create the product itself
             prod = Product.objects.create(**validated_data)
+            print(prod)
             # 3) now assign M2M
-            if tags:
-                prod.tags.set(tags)
-            if attrs:
-                prod.attributes.set(attrs)
-            # 4) and finally handle any uploaded files
-            for img in images:
-                ProductImage.objects.create(product=prod, image=img)
-
+            try:
+                if tags:
+                    prod.tags.set(tags)
+                if attrs:
+                    prod.attributes.set(attrs)
+                for img in images:
+                    print(prod)
+                    ProductImage.objects.create(product=prod, image=img)
+            except Exception as e:
+                print(e)
         return prod
 
     def update(self, instance, validated_data):
