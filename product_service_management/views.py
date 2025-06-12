@@ -398,6 +398,7 @@ class SellerProductViewSet(viewsets.ModelViewSet):
         return super().get_queryset().filter(seller=self.request.user)
 
     def perform_create(self, serializer):
+        print(serializer)
         serializer.save(seller=self.request.user)
 
     def perform_update(self, serializer):
@@ -405,6 +406,7 @@ class SellerProductViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, context={"request": request})
+        print(request.data)
         try:
             serializer.is_valid(raise_exception=True)
             self.perform_create(serializer)

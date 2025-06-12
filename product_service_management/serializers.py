@@ -253,7 +253,6 @@ class _ProductBaseSerializer(serializers.ModelSerializer):
     vendor_profile = serializers.SerializerMethodField()
     business = BusinessBriefSerializer(read_only=True)
 
-    # Write-only PK for business (scoped in __init__)
     business_id = serializers.PrimaryKeyRelatedField(
         queryset=Business.objects.none(),
         source='business', write_only=True,
@@ -313,7 +312,6 @@ class _ProductBaseSerializer(serializers.ModelSerializer):
         super().__init__(*args, **kwargs)
         request = self.context.get('request')
         if request and request.user.is_authenticated:
-            # restrict business choices to this vendor
             self.fields['business_id'].queryset = Business.objects.filter(vendor=request.user)
 
     def get_vendor_profile(self, obj):
@@ -331,6 +329,7 @@ class _ProductBaseSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         # assign seller from request
+        print("enter created")
         request = self.context.get('request')
         validated_data['seller'] = request.user
         # auto-generate slug
@@ -348,6 +347,7 @@ class _ProductBaseSerializer(serializers.ModelSerializer):
         return prod
 
     def update(self, instance, validated_data):
+        print("enter updated")
         tags, attrs, images = self._pop_nested(validated_data)
         with transaction.atomic():
             instance = super().update(instance, validated_data)
