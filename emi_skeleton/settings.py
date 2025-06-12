@@ -151,11 +151,11 @@ WSGI_APPLICATION = 'emi_skeleton.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'POSTGRES_DB': config('DATABASE_NAME'),
-        'POSTGRES_USER': config('DATABASE_USER'),
-        'POSTGRES_PASSWORD': config('DATABASE_PASSWORD'),
-        'POSTGRES_HOST': config('DATABASE_HOST', default='localhost'),
-        'POSTGRES_PORT': config('DATABASE_PORT', default='5432'),
+        'POSTGRES_DB': config('POSTGRES_DB'),
+        'POSTGRES_USER': config('POSTGRES_USER'),
+        'POSTGRES_PASSWORD': config('POSTGRES_PASSWORD'),
+        'POSTGRES_HOST': config('POSTGRES_HOST', default='localhost'),
+        'POSTGRES_PORT': config('POSTGRES_PORT', default='5432'),
     }
 }
 
