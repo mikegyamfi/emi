@@ -379,6 +379,7 @@ class SellerProductViewSet(viewsets.ModelViewSet):
     permission_classes = (IsVendor,)
     parser_classes = (MultiPartParser, FormParser)
     pagination_class = DefaultPagination
+    lookup_field = 'product_id'
     queryset = (
         Product.objects
         .select_related("category", "business")
@@ -408,6 +409,7 @@ class SellerProductViewSet(viewsets.ModelViewSet):
             serializer.is_valid(raise_exception=True)
             self.perform_create(serializer)
         except serializers.ValidationError as exc:
+            print(exc)
             return fail("Validation error", exc.detail)
         return ok("Product created successfully", serializer.data)
 
@@ -421,6 +423,7 @@ class SellerProductViewSet(viewsets.ModelViewSet):
             serializer.is_valid(raise_exception=True)
             self.perform_update(serializer)
         except serializers.ValidationError as exc:
+            print(exc)
             return fail("Validation error", exc.detail)
         return ok("Product updated successfully", serializer.data)
 
@@ -487,6 +490,7 @@ class SellerServiceViewSet(viewsets.ModelViewSet):
     pagination_class = DefaultPagination
     filter_backends = (DjangoFilterBackend, filters.SearchFilter)
     filterset_class = _ServiceFilter
+    lookup_field = 'service_id'
     search_fields = ("title", "description")
 
     queryset = (
