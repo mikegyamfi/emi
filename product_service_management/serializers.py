@@ -5,6 +5,7 @@
 # -----------------------------------------------------------------
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Avg, Count
+from django.utils.text import slugify
 from rest_framework import serializers, generics
 from django.db import transaction
 
@@ -244,148 +245,118 @@ class ProductMiniSerializer(serializers.ModelSerializer):
 
 class _ProductBaseSerializer(serializers.ModelSerializer):
     """
-    • Common read/write mapping
-    • No analytics, no market-intel coupling
+    Base serializer for Product.
+    Automatically assigns seller from the request user,
+    auto-generates slug, and handles nested M2M and image uploads.
     """
-    condition = ConditionMiniSerializer(read_only=True)
-    status = StatusMiniSerializer(read_only=True)
-    sku = SKUMiniSerializer(read_only=True)
-    seller = SellerMiniSerializer(read_only=True)  # NEW
-    vendor_profile = serializers.SerializerMethodField()  # NEW
+    seller = SellerMiniSerializer(read_only=True)
+    vendor_profile = serializers.SerializerMethodField()
     business = BusinessBriefSerializer(read_only=True)
 
-    # M2M expansions
-    tags = TagSerializer(many=True, read_only=True)
-    attributes = AttributeSerializer(many=True, read_only=True)
-    images = ProductImageSerializer(many=True, read_only=True)
-
-    # Write-only PK lists so the FE can still POST a lean payload
-    seller_id = serializers.PrimaryKeyRelatedField(  # NEW
-        queryset=CustomUser.objects.all(), source="seller",
-        write_only=True, required=False
+    # Write-only PK for business (scoped in __init__)
+    business_id = serializers.PrimaryKeyRelatedField(
+        queryset=Business.objects.none(),
+        source='business', write_only=True,
+        required=False, allow_null=True
     )
-    business_id = serializers.PrimaryKeyRelatedField(  # NEW
-        queryset=Business.objects.all(), source="business",
-        write_only=True, required=False, allow_null=True
-    )
-    category = CategoryDetailSerializer(read_only=True)
     category_id = serializers.PrimaryKeyRelatedField(
-        queryset=Category.objects.all(), source="category",
-        write_only=True, required=True)
+        queryset=Category.objects.all(), source='category', write_only=True
+    )
     condition_id = serializers.PrimaryKeyRelatedField(
-        queryset=ProductCondition.objects.all(), source="condition",
-        write_only=True, required=True)
+        queryset=ProductCondition.objects.all(), source='condition', write_only=True
+    )
     status_id = serializers.PrimaryKeyRelatedField(
-        queryset=ProductServiceStatus.objects.all(), source="status",
-        write_only=True, required=True)
+        queryset=ProductServiceStatus.objects.all(), source='status', write_only=True
+    )
     sku_id = serializers.PrimaryKeyRelatedField(
-        queryset=SKU.objects.all(), source="sku",
-        write_only=True, required=False)
-
+        queryset=SKU.objects.all(), source='sku', write_only=True,
+        required=False, allow_null=True
+    )
     tag_ids = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=Tag.objects.all(), source="tags",
-        write_only=True, required=False)
+        many=True, queryset=Tag.objects.all(), source='tags', write_only=True, required=False
+    )
     attribute_ids = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=Attributes.objects.all(), source="attributes",
-        write_only=True, required=False)
-
-    # nested uploads
+        many=True, queryset=Attributes.objects.all(), source='attributes', write_only=True, required=False
+    )
     new_images = serializers.ListField(
-        child=serializers.ImageField(), write_only=True,
-        required=False, help_text="optional list of files → ProductImage"
+        child=serializers.ImageField(), write_only=True, required=False
     )
 
-    object_type = serializers.SerializerMethodField()
+    # Read-only nested
+    category = serializers.StringRelatedField(read_only=True)
+    condition = serializers.StringRelatedField(read_only=True)
+    status = serializers.StringRelatedField(read_only=True)
+    sku = serializers.StringRelatedField(read_only=True)
+    tags = serializers.StringRelatedField(many=True, read_only=True)
+    attributes = serializers.StringRelatedField(many=True, read_only=True)
+    images = ProductImageSerializer(many=True, read_only=True)
 
     class Meta:
         model = Product
         fields = (
-            # ids
-            "product_id", "object_type",
-            # basic
-            "name", "slug", "description",
-            # ownership / organisation  ↓↓↓↓↓↓↓↓↓
-            "seller", "seller_id",
-            "vendor_profile",
-            "business", "business_id",
-            # look-ups
-            "category", "category_id",
-            "condition", "condition_id",
-            "status", "status_id",
-            "sku", "sku_id",
-            # pricing       ↓↓↓
-            "price", "currency", "discount_price", "quantity",
-            # flags
-            "featured", "is_active",
-            # m2m & images
-            "tags", "tag_ids",
-            "attributes", "attribute_ids",
-            "images", "new_images",
-            # meta
-            "created_at", "last_updated_at",
+            'product_id', 'name', 'slug', 'description',
+            'seller', 'vendor_profile', 'business', 'business_id',
+            'category', 'category_id',
+            'condition', 'condition_id',
+            'status', 'status_id',
+            'sku', 'sku_id',
+            'price', 'currency', 'discount_price', 'quantity',
+            'featured', 'is_active',
+            'tags', 'tag_ids',
+            'attributes', 'attribute_ids',
+            'images', 'new_images',
+            'created_at', 'last_updated_at'
         )
-        read_only_fields = ("created_at", "last_updated_at")
+        read_only_fields = ('created_at', 'last_updated_at')
 
-    # ------- helpers --------------------------------------------
-    def get_object_type(self, _):
-        return "Product"
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            # restrict business choices to this vendor
+            self.fields['business_id'].queryset = Business.objects.filter(vendor=request.user)
 
     def get_vendor_profile(self, obj):
-        # try to grab the one‐to‐one VendorProfile
         try:
             vp = obj.seller.vendorprofile
         except VendorProfile.DoesNotExist:
             return None
         return VendorProfileSerializer(vp, context=self.context).data
 
-    def _handle_m2m(self, obj, data):
-        if tags := data.pop("tags", None):
-            obj.tags.set(tags)
-        if attrs := data.pop("attributes", None):
-            obj.attributes.set(attrs)
+    def _pop_nested(self, validated_data):
+        tags = validated_data.pop('tags', [])
+        attrs = validated_data.pop('attributes', [])
+        images = validated_data.pop('new_images', [])
+        return tags, attrs, images
 
-    # ------- create / update ------------------------------------
     def create(self, validated_data):
-        print("entered into create")
-        tags = validated_data.pop("tags", [])
-        attrs = validated_data.pop("attributes", [])
-        images = validated_data.pop("new_images", [])
-
+        # assign seller from request
+        request = self.context.get('request')
+        validated_data['seller'] = request.user
+        # auto-generate slug
+        if not validated_data.get('slug'):
+            validated_data['slug'] = slugify(validated_data['name'])
+        tags, attrs, images = self._pop_nested(validated_data)
         with transaction.atomic():
-            # 2) create the product itself
             prod = Product.objects.create(**validated_data)
-            print(prod)
-            # 3) now assign M2M
-            try:
-                if tags:
-                    prod.tags.set(tags)
-                if attrs:
-                    prod.attributes.set(attrs)
-                for img in images:
-                    print(prod)
-                    ProductImage.objects.create(product=prod, image=img)
-            except Exception as e:
-                print(e)
+            if tags:
+                prod.tags.set(tags)
+            if attrs:
+                prod.attributes.set(attrs)
+            for img in images:
+                ProductImage.objects.create(product=prod, image=img)
         return prod
 
     def update(self, instance, validated_data):
-        # same pattern: pull out M2M and files, then update
-        tags = validated_data.pop("tags", None)
-        attrs = validated_data.pop("attributes", None)
-        images = validated_data.pop("new_images", [])
-
+        tags, attrs, images = self._pop_nested(validated_data)
         with transaction.atomic():
-            # simple field update
             instance = super().update(instance, validated_data)
-
             if tags is not None:
                 instance.tags.set(tags)
             if attrs is not None:
                 instance.attributes.set(attrs)
-
             for img in images:
                 ProductImage.objects.create(product=instance, image=img)
-
         return instance
 
 
