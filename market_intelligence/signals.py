@@ -8,7 +8,7 @@ from .models import PriceListing, PriceHistory
           )
 def snapshot_price(sender, instance, **_):
     PriceHistory.objects.create(
-        listing=instance.product_listing,
+        listing=instance,
         price=instance.price,
         currency=instance.currency or "GHS",
     )

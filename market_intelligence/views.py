@@ -131,12 +131,11 @@ class ProductViewSet(_BaseStemViewSet):
     • ?district=<pk>
     • ?town=<pk>
     • ?market=<pk>
-    (Filters may be combined.)
     """
     serializer_class = ProductSerializer
     permission_classes = (Everyone,)
     filter_backends = (DjangoFilterBackend, filters.SearchFilter)
-    filterset_fields = ("category",)  # keeps old ones
+    filterset_fields = ("category",)
     search_fields = ("name", "description", "sku")
 
     # ------------------------------------------------------------

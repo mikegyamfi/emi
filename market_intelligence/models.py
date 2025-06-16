@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import CheckConstraint, Q, Avg, Min, Max
@@ -94,45 +96,73 @@ class ProductServiceImage(models.Model):
 
 class PriceListing(models.Model):
     """
-    A *single row* represents:
-        • the product **or** service being offered
-        • the geo-anchor (town and/or market)
-        • the current price
-        • live aggregate stats (avg / low / high)
+    A single row represents:
+      • the product **or** service being offered
+      • the geo-anchor (town and/or market)
+      • the current price
+      • live aggregate stats (avg / low / high)
     Historical snapshots live in PriceHistory (FK 👉 listing).
     """
-    # -------- WHAT is being sold -----------------------------------
-    product = models.ForeignKey("Product", on_delete=models.CASCADE,
-                                null=True, blank=True, related_name="listings")
-    service = models.ForeignKey("Service", on_delete=models.CASCADE,
-                                null=True, blank=True, related_name="listings")
+    product = models.ForeignKey(
+        "Product",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="listings",
+    )
+    service = models.ForeignKey(
+        "Service",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="listings",
+    )
 
     # -------- WHERE ------------------------------------------------
-    town = models.ForeignKey("Town", on_delete=models.CASCADE,
-                             null=True, blank=True, related_name="+")
-    market = models.ForeignKey("Market", on_delete=models.CASCADE,
-                               null=True, blank=True, related_name="+")
+    town = models.ForeignKey(
+        "Town",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    market = models.ForeignKey(
+        "Market",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
 
     # -------- PRICE ------------------------------------------------
     price = models.DecimalField(max_digits=10, decimal_places=2)
     currency = models.CharField(max_length=10, default="GHS")
-    average_price = models.DecimalField(max_digits=10, decimal_places=2,
-                                        editable=False)
-    lowest_price = models.DecimalField(max_digits=10, decimal_places=2,
-                                       editable=False)
-    highest_price = models.DecimalField(max_digits=10, decimal_places=2,
-                                        editable=False)
+    average_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        editable=False,
+    )
+    lowest_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        editable=False,
+    )
+    highest_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        editable=False,
+    )
     note = models.TextField(blank=True)
     status = models.BooleanField(default=True)  # active/hidden
     updated_at = models.DateTimeField(auto_now=True)
 
-    # -------------------- Constraints ------------------------------
     class Meta:
         constraints = [
+            # exactly one of product or service
             models.CheckConstraint(
                 check=(
-                        (Q(product__isnull=False) & Q(service__isnull=True)) |
-                        (Q(product__isnull=True) & Q(service__isnull=False))
+                    (Q(product__isnull=False) & Q(service__isnull=True)) |
+                    (Q(product__isnull=True) & Q(service__isnull=False))
                 ),
                 name="price_listing_exactly_one_stem",
             ),
@@ -143,7 +173,6 @@ class PriceListing(models.Model):
             ),
         ]
 
-    # -------------------- Clean / helpers --------------------------
     def clean(self):
         super().clean()
         if bool(self.product) == bool(self.service):
@@ -164,22 +193,27 @@ class PriceListing(models.Model):
         where = self.market or self.town or "—"
         return f"{stem} | {self.price} {self.currency} @ {where}"
 
-    # -------------------- Save override ----------------------------
     def _recalc_stats(self):
         agg = self.history.aggregate(
             avg=Avg("price"), lo=Min("price"), hi=Max("price")
         )
-        self.average_price = agg["avg"] or self.price
-        self.lowest_price = agg["lo"] or self.price
-        self.highest_price = agg["hi"] or self.price
+        self.average_price = agg.get("avg") or self.price
+        self.lowest_price = agg.get("lo") or self.price
+        self.highest_price = agg.get("hi") or self.price
 
     def save(self, *args, **kwargs):
-        # first save or explicit price field change ⇒ write history
         is_new = self._state.adding
-        price_changed = "price" in kwargs.get("update_fields", []) or is_new
+
+        # pre-populate stats on create
+        if is_new:
+            initial = self.price or Decimal("0.00")
+            self.average_price = initial
+            self.lowest_price = initial
+            self.highest_price = initial
 
         super().save(*args, **kwargs)
 
+        price_changed = is_new or ("price" in (kwargs.get("update_fields") or []))
         if price_changed:
             PriceHistory.objects.create(
                 listing=self,
@@ -187,9 +221,10 @@ class PriceListing(models.Model):
                 currency=self.currency,
                 recorded_at=timezone.now(),
             )
-
-        self._recalc_stats()
-        super().save(update_fields=("average_price", "lowest_price", "highest_price"))
+            self._recalc_stats()
+            super().save(update_fields=(
+                "average_price", "lowest_price", "highest_price"
+            ))
 
 
 class PriceHistory(models.Model):
