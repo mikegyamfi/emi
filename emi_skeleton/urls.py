@@ -31,7 +31,7 @@ urlpatterns = [
                   path('api/v1/feedback_management/', include('feedback.urls')),
                   path('api/v1/forum/', include('forum.urls')),
                   path('api/v1/document_manager/', include('document_manager.urls')),
-                  path("schema/", SpectacularAPIView.as_view(), name="schema"),  # raw OpenAPI json
+                  path("schema/", SpectacularAPIView.as_view(), name="schema"),
                   path("swagger/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
                   path("redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
 

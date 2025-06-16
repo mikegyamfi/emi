@@ -5,9 +5,9 @@
 # -----------------------------------------------------------------
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Avg, Count
-from django.utils.text import slugify
 from rest_framework import serializers, generics
 from django.db import transaction
+from PIL import Image
 
 from account.models import CustomUser, VendorProfile
 from account.serializers import VendorProfileSerializer
@@ -65,7 +65,7 @@ class TownMiniSerializer(serializers.ModelSerializer):
 class CategoryMiniSerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
-        fields = ("id", "name")
+        fields = ("id", "name", "type")
 
 
 class SKUSerializer(serializers.ModelSerializer):
@@ -120,36 +120,26 @@ class AttributeSerializer(serializers.ModelSerializer):
 class CategoryTreeSerializer(_ImageURLMixin, serializers.ModelSerializer):
     children = serializers.SerializerMethodField()
     icon_url = serializers.SerializerMethodField()
-    sku_list = serializers.StringRelatedField(source="available_sku",
-                                              many=True, read_only=True)
+    sku_list = serializers.StringRelatedField(source="available_sku", many=True)
 
     class Meta:
         model = Category
         fields = (
-            "id", "name", "description",
+            "id", "name", "type", "description",
             "icon_url", "is_active",
-            "sku_list",  # quick ref – names only
-            "children",
+            "sku_list", "children",
         )
 
-    # recursive ↓
     def get_children(self, obj):
-        q = obj.children.filter(is_active=True)
-        return CategoryTreeSerializer(q, many=True,
-                                      context=self.context).data
+        qs = obj.children.filter(is_active=True)
+        return CategoryTreeSerializer(qs, many=True, context=self.context).data
 
     def get_icon_url(self, obj):
-        return self._abs(self.context.get("request"), obj.icon)
+        request = self.context.get("request")
+        return self._abs(request, obj.icon)
 
 
 class CategoryDetailSerializer(CategoryTreeSerializer):
-    """
-    Extends the recursive `CategoryTreeSerializer` with:
-
-    • `has_children`         – bool
-    • `attached_to`          – "product" | "service" | "both" | "none"
-    • `parents`              – flat list *up* to the root (for breadcrumbs)
-    """
     has_children = serializers.SerializerMethodField()
     attached_to = serializers.SerializerMethodField()
     parents = serializers.SerializerMethodField()
@@ -159,11 +149,8 @@ class CategoryDetailSerializer(CategoryTreeSerializer):
             "has_children", "attached_to", "parents"
         )
 
-    # ----------------------------------------
-    # helpers
-    # ----------------------------------------
     def get_has_children(self, obj) -> bool:
-        return obj.children.filter(is_active=True).exists()
+        return obj.children.filter(is_active=True, type=obj.type).exists()
 
     def get_attached_to(self, obj) -> str:
         prod = obj.products.exists()
@@ -180,9 +167,10 @@ class CategoryDetailSerializer(CategoryTreeSerializer):
         chain = []
         cur = obj.parent
         while cur:
-            chain.append({"id": cur.id, "name": cur.name})
+            if cur.type == obj.type:
+                chain.append({"id": cur.id, "name": cur.name})
             cur = cur.parent
-        return chain[::-1]  # root → ... → direct parent
+        return chain[::-1]
 
 
 # ───────────────────────────────────────────────────────────────
@@ -244,75 +232,88 @@ class ProductMiniSerializer(serializers.ModelSerializer):
 
 
 class _ProductBaseSerializer(serializers.ModelSerializer):
-    """
-    Base serializer for Product.
-    Automatically assigns seller from the request user,
-    auto-generates slug, and handles nested M2M and image uploads.
-    """
+    condition = ConditionMiniSerializer(read_only=True)
+    status = StatusMiniSerializer(read_only=True)
+    sku = SKUMiniSerializer(read_only=True)
     seller = SellerMiniSerializer(read_only=True)
     vendor_profile = serializers.SerializerMethodField()
     business = BusinessBriefSerializer(read_only=True)
+    stock_message = serializers.SerializerMethodField()
 
-    business_id = serializers.PrimaryKeyRelatedField(
-        queryset=Business.objects.none(),
-        source='business', write_only=True,
-        required=False, allow_null=True
+    tags = TagSerializer(many=True, read_only=True)
+    attributes = AttributeSerializer(many=True, read_only=True)
+    images = ProductImageSerializer(many=True, read_only=True)
+
+    seller_id = serializers.PrimaryKeyRelatedField(
+        queryset=CustomUser.objects.all(), source="seller",
+        write_only=True, required=False
     )
+    business_id = serializers.PrimaryKeyRelatedField(
+        queryset=Business.objects.all(), source="business",
+        write_only=True, required=False, allow_null=True
+    )
+
+    category = CategoryDetailSerializer(read_only=True)
     category_id = serializers.PrimaryKeyRelatedField(
-        queryset=Category.objects.all(), source='category', write_only=True
+        queryset=Category.objects.filter(type=Category.PRODUCT),
+        source="category", write_only=True, required=True
     )
     condition_id = serializers.PrimaryKeyRelatedField(
-        queryset=ProductCondition.objects.all(), source='condition', write_only=True
+        queryset=ProductCondition.objects.all(), source="condition",
+        write_only=True, required=True
     )
     status_id = serializers.PrimaryKeyRelatedField(
-        queryset=ProductServiceStatus.objects.all(), source='status', write_only=True
+        queryset=ProductServiceStatus.objects.all(), source="status",
+        write_only=True, required=True
     )
     sku_id = serializers.PrimaryKeyRelatedField(
-        queryset=SKU.objects.all(), source='sku', write_only=True,
-        required=False, allow_null=True
-    )
-    tag_ids = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=Tag.objects.all(), source='tags', write_only=True, required=False
-    )
-    attribute_ids = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=Attributes.objects.all(), source='attributes', write_only=True, required=False
-    )
-    new_images = serializers.ListField(
-        child=serializers.ImageField(), write_only=True, required=False
+        queryset=SKU.objects.all(), source="sku",
+        write_only=True, required=False
     )
 
-    # Read-only nested
-    category = serializers.StringRelatedField(read_only=True)
-    condition = serializers.StringRelatedField(read_only=True)
-    status = serializers.StringRelatedField(read_only=True)
-    sku = serializers.StringRelatedField(read_only=True)
-    tags = serializers.StringRelatedField(many=True, read_only=True)
-    attributes = serializers.StringRelatedField(many=True, read_only=True)
-    images = ProductImageSerializer(many=True, read_only=True)
+    tag_ids = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=Tag.objects.all(), source="tags",
+        write_only=True, required=False
+    )
+    attribute_ids = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=Attributes.objects.all(), source="attributes",
+        write_only=True, required=False
+    )
+
+    new_images = serializers.ListField(
+        child=serializers.ImageField(), write_only=True,
+        required=False, help_text="Optional list of files → ProductImage"
+    )
+
+    object_type = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
         fields = (
-            'product_id', 'name', 'slug', 'description',
-            'seller', 'vendor_profile', 'business', 'business_id',
-            'category', 'category_id',
-            'condition', 'condition_id',
-            'status', 'status_id',
-            'sku', 'sku_id',
-            'price', 'currency', 'discount_price', 'quantity',
-            'featured', 'is_active',
-            'tags', 'tag_ids',
-            'attributes', 'attribute_ids',
-            'images', 'new_images',
-            'created_at', 'last_updated_at'
+            "product_id", "object_type",
+            "name", "slug", "description",
+            "seller", "seller_id", "vendor_profile",
+            "business", "business_id",
+            "category", "category_id",
+            "condition", "condition_id",
+            "status", "status_id",
+            "sku", "sku_id",
+            "price", "currency", "discount_price", "quantity", "stock_message",
+            "featured", "is_active",
+            "tags", "tag_ids",
+            "attributes", "attribute_ids",
+            "images", "new_images",
+            "created_at", "last_updated_at",
         )
-        read_only_fields = ('created_at', 'last_updated_at')
+        read_only_fields = ("created_at", "last_updated_at")
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        request = self.context.get('request')
-        if request and request.user.is_authenticated:
-            self.fields['business_id'].queryset = Business.objects.filter(vendor=request.user)
+    def get_object_type(self, _):
+        return "Product"
+
+    def get_stock_message(self, obj):
+        if obj.quantity <= 5:
+            return "Few units left"
+        return None
 
     def get_vendor_profile(self, obj):
         try:
@@ -321,34 +322,35 @@ class _ProductBaseSerializer(serializers.ModelSerializer):
             return None
         return VendorProfileSerializer(vp, context=self.context).data
 
-    def _pop_nested(self, validated_data):
-        tags = validated_data.pop('tags', [])
-        attrs = validated_data.pop('attributes', [])
-        images = validated_data.pop('new_images', [])
-        return tags, attrs, images
+    def validate_new_images(self, images):
+        for img in images:
+            try:
+                Image.open(img).verify()
+                img.seek(0)
+            except Exception:
+                raise serializers.ValidationError("All uploaded files must be valid image formats.")
+        return images
 
     def create(self, validated_data):
-        # assign seller from request
-        print("enter created")
-        request = self.context.get('request')
-        validated_data['seller'] = request.user
-        # auto-generate slug
-        if not validated_data.get('slug'):
-            validated_data['slug'] = slugify(validated_data['name'])
-        tags, attrs, images = self._pop_nested(validated_data)
+        tags = validated_data.pop("tags", [])
+        attrs = validated_data.pop("attributes", [])
+        images = validated_data.pop("new_images", [])
+
         with transaction.atomic():
-            prod = Product.objects.create(**validated_data)
+            product = Product.objects.create(**validated_data)
             if tags:
-                prod.tags.set(tags)
+                product.tags.set(tags)
             if attrs:
-                prod.attributes.set(attrs)
+                product.attributes.set(attrs)
             for img in images:
-                ProductImage.objects.create(product=prod, image=img)
-        return prod
+                ProductImage.objects.create(product=product, image=img)
+        return product
 
     def update(self, instance, validated_data):
-        print("enter updated")
-        tags, attrs, images = self._pop_nested(validated_data)
+        tags = validated_data.pop("tags", None)
+        attrs = validated_data.pop("attributes", None)
+        images = validated_data.pop("new_images", [])
+
         with transaction.atomic():
             instance = super().update(instance, validated_data)
             if tags is not None:
@@ -391,64 +393,36 @@ class ProductSerializer(_ProductBaseSerializer):
 
 
 class ProductDetailSerializer(ProductSerializer):
-    """
-    Extends the already-rich `ProductSerializer`:
-
-      • adds `related_products` ⇒ mini list from the SAME *root*
-        category as the product being viewed.
-
-    Everything else (vendor profile, business details, tags …)
-    comes from the base class unchanged.
-    """
     related_products = serializers.SerializerMethodField()
     feedback = serializers.SerializerMethodField()
     rating_stats = serializers.SerializerMethodField()
 
     class Meta(ProductSerializer.Meta):
         fields = ProductSerializer.Meta.fields + (
-            "related_products",
-            "feedback",
-            "rating_stats",
+            "related_products", "feedback", "rating_stats"
         )
 
-    # -----------------------------------------------------------
-    # helpers
-    # -----------------------------------------------------------
-    def _root_category(self, cat: Category) -> Category:
-        """Walk up until we hit the top‐level parent (or self)."""
+    def _root_category(self, cat):
         while cat.parent_id:
             cat = cat.parent
         return cat
 
     def get_related_products(self, obj):
         root = self._root_category(obj.category)
-        # same root → exclude current product → only active
-        qs = (
-            Product.objects.filter(category__in=root.children.all() | Category.objects.filter(pk=root.pk))
-            .exclude(pk=obj.pk)
-            .filter(is_active=True)
-            .select_related("category")
-            .prefetch_related("images")
-            .order_by("?")[:8]  # random 8
-        )
-        return ProductMiniSerializer(
-            qs, many=True, context=self.context
-        ).data
+        qs = Product.objects.filter(
+            category__in=[root] + list(root.children.all()),
+            is_active=True
+        ).exclude(pk=obj.pk).select_related("category").prefetch_related("images").order_by("?")[:8]
+        return ProductMiniSerializer(qs, many=True, context=self.context).data
 
     def get_feedback(self, obj):
         ct = ContentType.objects.get_for_model(obj)
-        qs = Feedback.objects.filter(
-            content_type=ct,
-            object_id=obj.product_id
-        ).order_by("-submitted_at")
-
-        out = {}
+        qs = Feedback.objects.filter(content_type=ct, object_id=obj.product_id).order_by("-submitted_at")
+        result = {}
         for key, _ in Feedback.FEEDBACK_TYPE_CHOICES:
             subset = qs.filter(feedback_type=key)
-            out[key] = FeedbackPublicSerializer(
-                subset, many=True, context=self.context
-            ).data
-        return out
+            result[key] = FeedbackPublicSerializer(subset, many=True, context=self.context).data
+        return result
 
     def get_rating_stats(self, obj):
         ct = ContentType.objects.get_for_model(obj)
@@ -458,15 +432,12 @@ class ProductDetailSerializer(ProductSerializer):
             feedback_type="rating",
             rating__isnull=False
         )
-        avg = qs.aggregate(a=Avg("rating"))["a"] or 0
+        avg = qs.aggregate(avg_rating=Avg("rating"))["avg_rating"] or 0
         dist_qs = qs.values("rating").annotate(count=Count("id"))
         dist = {str(i): 0 for i in range(1, 6)}
         for row in dist_qs:
             dist[str(row["rating"])] = row["count"]
-        return {
-            "average": float(avg),
-            "distribution": dist,
-        }
+        return {"average": float(avg), "distribution": dist}
 
 
 # ───────────────────────────────────────────────────────────────
@@ -518,60 +489,59 @@ class ServicePricingChoiceSerializer(serializers.ModelSerializer):
         fields = ("id", "name", "description")
 
 
-class ServiceSerializer(_LocationWriteMixin,
-                        serializers.ModelSerializer):
-    print("hello world")
+class ServiceSerializer(_LocationWriteMixin, serializers.ModelSerializer):
     category = CategoryTreeSerializer(read_only=True)
     category_id = serializers.PrimaryKeyRelatedField(
-        queryset=Category.objects.all(), source="category",
-        write_only=True, required=True)
-
+        queryset=Category.objects.filter(type=Category.SERVICE),
+        source="category", write_only=True, required=True
+    )
     pricing_type = serializers.StringRelatedField(read_only=True)
     pricing_type_id = serializers.PrimaryKeyRelatedField(
-        queryset=ServicePricingChoices.objects.all(),
-        source="pricing_type", write_only=True, required=True)
+        queryset=ServicePricingChoices.objects.all(),  # or correct ServicePricingChoices model
+        source="pricing_type", write_only=True, required=True
+    )
 
-    # many-many read faces
     regions = RegionMiniSerializer(many=True, read_only=True)
+    region_ids = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=Region.objects.all(),
+        source="regions", write_only=True, required=False
+    )
     district = DistrictMiniSerializer(many=True, read_only=True)
+    district_ids = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=District.objects.all(),
+        source="district", write_only=True, required=False
+    )
     town = TownMiniSerializer(many=True, read_only=True)
+    town_ids = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=Town.objects.all(),
+        source="town", write_only=True, required=False
+    )
 
-    # tags / attributes
     tags = TagSerializer(many=True, read_only=True)
     tag_ids = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=Tag.objects.all(), write_only=True,
-        source="tags", required=False)
-
+        many=True, queryset=Tag.objects.all(),
+        source="tags", write_only=True, required=False
+    )
     attributes = AttributeSerializer(many=True, read_only=True)
     attribute_ids = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=Attributes.objects.all(), write_only=True,
-        source="attributes", required=False)
+        many=True, queryset=Attributes.objects.all(),
+        source="attributes", write_only=True, required=False
+    )
 
-    # images (reuse ProductImage table for simplicity)
     images = ServiceImageSerializer(many=True, read_only=True)
     new_images = serializers.ListField(
-        child=serializers.ImageField(),
-        write_only=True,
-        required=False,
+        child=serializers.ImageField(), write_only=True, required=False,
         help_text="Optional list of files → ServiceImage"
     )
 
-    # read-only nested
     business = BusinessBriefSerializer(read_only=True)
-    provider = SellerMiniSerializer(read_only=True)  # NEW
-    vendor_profile = serializers.SerializerMethodField()
-
-    # write-only PK
     business_id = serializers.PrimaryKeyRelatedField(
-        queryset=Business.objects.all(),
-        source="business",
-        write_only=True,
-        required=False,
-        allow_null=True,
-        help_text="Optional: assign this service to one of your businesses."
+        queryset=Business.objects.all(), source="business", write_only=True,
+        required=False, allow_null=True
     )
+    provider = SellerMiniSerializer(read_only=True)
+    vendor_profile = serializers.SerializerMethodField()
     average_rating = serializers.SerializerMethodField()
-
     object_type = serializers.SerializerMethodField()
 
     class Meta:
@@ -595,7 +565,7 @@ class ServiceSerializer(_LocationWriteMixin,
         read_only_fields = ("created_at", "updated_at")
 
     def get_object_type(self, _):
-        return "Product"
+        return "Service"
 
     def get_vendor_profile(self, obj):
         try:
@@ -603,14 +573,32 @@ class ServiceSerializer(_LocationWriteMixin,
         except VendorProfile.DoesNotExist:
             return None
         return VendorProfileSerializer(vp, context=self.context).data
-    #
-    # def get_vendor_profile(self, obj):
-    #     if obj.role.filter(slug="vendor").exists() and hasattr(obj, "vendorprofile"):
-    #         return VendorProfileSerializer(obj.vendorprofile).data
-    #     return None
+
+    def validate_new_images(self, images):
+        for img in images:
+            try:
+                Image.open(img).verify()
+                img.seek(0)
+            except Exception:
+                raise serializers.ValidationError("All uploaded files must be valid image formats.")
+        return images
+
+    def get_average_rating(self, obj):
+        # look up only “rating”-type Feedback for this product
+        ct = ContentType.objects.get_for_model(obj)
+        avg = (
+            Feedback.objects
+            .filter(
+                content_type=ct,
+                object_id=obj.service_id,
+                feedback_type="rating",
+                rating__isnull=False
+            )
+            .aggregate(a=Avg("rating"))["a"]
+        )
+        return float(avg or 0.0)
 
     def create(self, validated_data):
-        # 1) pull out writable m2m and nested-upload fields
         new_images = validated_data.pop("new_images", [])
         tag_objs = validated_data.pop("tags", [])
         attr_objs = validated_data.pop("attributes", [])
@@ -618,16 +606,12 @@ class ServiceSerializer(_LocationWriteMixin,
         district_objs = validated_data.pop("district", [])
         town_objs = validated_data.pop("town", [])
 
-        # 2) enforce provider = request.user
         request = self.context.get("request")
         if not request or not request.user or not request.user.is_authenticated:
             raise serializers.ValidationError("Authentication credentials were not provided.")
         validated_data["provider"] = request.user
 
-        # 3) create the Service
         service = Service.objects.create(**validated_data)
-
-        # 4) assign all the many-to-many relations
         if tag_objs:
             service.tags.set(tag_objs)
         if attr_objs:
@@ -636,10 +620,8 @@ class ServiceSerializer(_LocationWriteMixin,
         service.district.set(district_objs)
         service.town.set(town_objs)
 
-        # 5) create any uploaded images
         for img in new_images:
             ServiceImage.objects.create(service=service, image=img)
-
         return service
 
     def update(self, instance, validated_data):
@@ -663,97 +645,50 @@ class ServiceSerializer(_LocationWriteMixin,
         if town_objs is not None:
             instance.town.set(town_objs)
 
-        # 3) add any new images
         for img in new_images:
             ServiceImage.objects.create(service=instance, image=img)
-
         return instance
-
-    def get_average_rating(self, obj):
-        ct = ContentType.objects.get_for_model(obj)
-        avg = (
-            Feedback.objects
-            .filter(
-                content_type=ct,
-                object_id=obj.service_id,
-                feedback_type="rating",
-                rating__isnull=False
-            )
-            .aggregate(a=Avg("rating"))["a"]
-        )
-        return float(avg or 0.0)
 
 
 class ServiceMiniSerializer(serializers.ModelSerializer):
-    """
-    Lean representation used in:
-      • SellerServiceViewSet.activate / deactivate responses
-      • Product / Service *related_* lists
-      • Any other place where only a ‘card’ is required
-    """
     category = CategoryMiniSerializer(read_only=True)
 
     class Meta:
         model = Service
-        fields = (
-            "service_id",  # keep it explicit ⇒ UUID
-            "title",
-            "price",
-            "is_active",
-            "category",
-        )
+        fields = ("service_id", "title", "price", "is_active", "category")
 
 
 class ServiceDetailSerializer(ServiceSerializer):
-    """
-    Adds `related_services` ⇒  up to *8* random active services that
-    share the same **root** category (excludes the current one).
-    """
     related_services = serializers.SerializerMethodField()
     feedback = serializers.SerializerMethodField()
     rating_stats = serializers.SerializerMethodField()
 
     class Meta(ServiceSerializer.Meta):
-        fields = ServiceSerializer.Meta.fields + ("related_services", "feedback",
-                                                  "rating_stats",)
+        fields = ServiceSerializer.Meta.fields + (
+            "related_services", "feedback", "rating_stats"
+        )
 
-    # ----------------------------------------------
-    # category helpers
-    # ----------------------------------------------
-    def _root(self, cat: Category) -> Category:
+    def _root_category(self, cat):
         while cat.parent_id:
             cat = cat.parent
         return cat
 
     def get_related_services(self, obj):
-        root = self._root(obj.category)
-        qs = (
-            Service.objects
-            .filter(
-                category__in=root.children.all() | Category.objects.filter(pk=root.pk),
-                is_active=True
-            )
-            .exclude(pk=obj.pk)
-            .select_related("category")
-            .prefetch_related("images")
-            .order_by("?")[:8]
-        )
+        root = self._root_category(obj.category)
+        qs = Service.objects.filter(
+            category__in=[root] + list(root.children.all()),
+            is_active=True
+        ).exclude(pk=obj.pk).select_related("category").prefetch_related("images").order_by("?")[:8]
         return ServiceMiniSerializer(qs, many=True, context=self.context).data
 
     def get_feedback(self, obj):
         ct = ContentType.objects.get_for_model(obj)
-        qs = Feedback.objects.filter(
-            content_type=ct,
-            object_id=obj.service_id
-        ).order_by("-submitted_at")
-
-        out = {}
+        qs = Feedback.objects.filter(content_type=ct, object_id=obj.service_id).order_by("-submitted_at")
+        result = {}
         for key, _ in Feedback.FEEDBACK_TYPE_CHOICES:
             subset = qs.filter(feedback_type=key)
-            out[key] = FeedbackPublicSerializer(
-                subset, many=True, context=self.context
-            ).data
-        return out
+            result[key] = FeedbackPublicSerializer(subset, many=True, context=self.context).data
+        return result
 
     def get_rating_stats(self, obj):
         ct = ContentType.objects.get_for_model(obj)
@@ -763,15 +698,12 @@ class ServiceDetailSerializer(ServiceSerializer):
             feedback_type="rating",
             rating__isnull=False
         )
-        avg = qs.aggregate(a=Avg("rating"))["a"] or 0
+        avg = qs.aggregate(avg_rating=Avg("rating"))["avg_rating"] or 0
         dist_qs = qs.values("rating").annotate(count=Count("id"))
         dist = {str(i): 0 for i in range(1, 6)}
         for row in dist_qs:
             dist[str(row["rating"])] = row["count"]
-        return {
-            "average": float(avg),
-            "distribution": dist,
-        }
+        return {"average": float(avg), "distribution": dist}
 
 
 

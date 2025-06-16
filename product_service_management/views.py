@@ -10,6 +10,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets, generics, filters, pagination, serializers, permissions
 from rest_framework.decorators import action
+from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -17,11 +18,11 @@ from rest_framework.response import Response
 from account.models import CustomUser, VendorProfile
 from account.serializers_vendor import VendorProfileSerializer
 from business.serializers import BusinessBriefSerializer
-from checkout_processing.models import DirectOrder
 from core.lookup_views import AutocompleteMixin
 from core.response import ok, fail  # your helper
 from account.permissions import IsVendor  # «seller» guard
 from business.models import Business  # for ?business filter
+from core.utils import flatten_error
 
 from .models import (
     Product, Service, Category, Tag, Attributes,
@@ -73,7 +74,7 @@ class _ServiceFilter(_ProductFilter):
     Extends the generic product filter with every lookup that makes sense
     for a Service:
 
-    • category – id
+    • category           – id
     • is_active          – bool
     • is_remote          – bool
     • pricing_type       – id
@@ -139,119 +140,128 @@ class PublicProductViewSet(viewsets.ReadOnlyModelViewSet):
 @extend_schema(tags=["Public Services"])
 class PublicServiceViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    Same idea as above for services.
+    • list:   /services/        → ServiceSerializer
+    • retrieve: /services/{pk}/ → ServiceDetailSerializer
     """
     queryset = Service.objects.prefetch_related(
-        "tags", "attributes", "images", "category")
-    serializer_class = ServiceSerializer
+        "tags", "attributes", "images", "category"
+    )
     permission_classes = (Everyone,)
     pagination_class = DefaultPagination
     filter_backends = (DjangoFilterBackend, filters.SearchFilter)
     filterset_class = _ServiceFilter
-    search_fields = ("title", "description")
+    search_fields = ("title", "description",)
+
+    # default serializer for list
+    serializer_class = ServiceSerializer
+
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return ServiceDetailSerializer
+        return super().get_serializer_class()
 
 
-@extend_schema(tags=["Product Public Category Trees"])
-class PublicCategoryTree(generics.GenericAPIView):
-    """
-    GET /categories/tree/
-    {
-      "code": 1,
-      "message": "OK",
-      "data": {
-        "categories"        : …  # full active tree
-        "product_categories": …  # roots that *contain or descend-to* products
-        "service_categories": …  # same for services
-      }
-    }
-    """
-    permission_classes = (Everyone,)
-
-    # -------------------------------------------------------------
-    # helpers
-    # -------------------------------------------------------------
-    def _active_roots(self, cats_qs):
-        """
-        Given **any** Category queryset, return the distinct set of
-        *active* root categories that lie on the path to those nodes.
-        """
-        # (1) fetch only the columns we need – id & parent_id
-        lookup = dict(
-            Category.objects
-            .filter(is_active=True)
-            .values_list("id", "parent_id")
-        )
-
-        root_ids = set()
-        for cat_id in cats_qs.values_list("id", flat=True).distinct():
-            cur = cat_id
-            # climb up until we hit the top (parent_id == None)
-            while cur and cur in lookup:
-                parent = lookup[cur]
-                if parent is None:  # ← root reached
-                    root_ids.add(cur)
-                    break
-                cur = parent
-        return (
-            Category.objects
-            .filter(id__in=root_ids, is_active=True)
-            .order_by("name")
-        )
-
-    # -------------------------------------------------------------
-    # GET
-    # -------------------------------------------------------------
-    def get(self, request, *args, **kwargs):
-
-        # --- 1) full tree (unchanged) ----------------------------
-        all_roots = (
-            Category.objects
-            .filter(is_active=True, parent__isnull=True)
-            .order_by("name")
-        )
-
-        # --- 2) product / service roots --------------------------
-        product_nodes = Category.objects.filter(products__isnull=False)
-        service_nodes = Category.objects.filter(services__isnull=False)
-
-        product_roots = self._active_roots(product_nodes)
-        service_roots = self._active_roots(service_nodes)
-
-        ctx = {"request": request}
-        serializer = CategoryTreeSerializer
-
-        payload = {
-            "categories": serializer(all_roots, many=True, context=ctx).data,
-            "product_categories": serializer(product_roots, many=True, context=ctx).data,
-            "service_categories": serializer(service_roots, many=True, context=ctx).data,
-        }
-        return ok("OK", payload)
-
-
-@extend_schema(tags=["Product Public Category Details"])
-class PublicCategoryDetail(generics.RetrieveAPIView):
-    """
-    GET /categories/<pk>/
-
-    Returns the subtree starting at `<pk>` *plus* meta flags that help
-    the front-end decide what UI controls to show.
-
-    Response
-    --------
-    {
-      "code": 1,
-      "message": "OK",
-      "data": CategoryDetailSerializer
-    }
-    """
-    lookup_field = "pk"
-    queryset = Category.objects.filter(is_active=True)
-    serializer_class = CategoryDetailSerializer
-
-    def retrieve(self, request, *args, **kwargs):
-        obj = self.get_object()
-        ser = self.get_serializer(obj, context={"request": request})
-        return ok("OK", ser.data)
+# @extend_schema(tags=["Product Public Category Trees"])
+# class PublicCategoryTree(generics.GenericAPIView):
+#     """
+#     GET /categories/tree/
+#     {
+#       "code": 1,
+#       "message": "OK",
+#       "data": {
+#         "categories"        : …  # full active tree
+#         "product_categories": …  # roots that *contain or descend-to* products
+#         "service_categories": …  # same for services
+#       }
+#     }
+#     """
+#     permission_classes = (Everyone,)
+#
+#     # -------------------------------------------------------------
+#     # helpers
+#     # -------------------------------------------------------------
+#     def _active_roots(self, cats_qs):
+#         """
+#         Given **any** Category queryset, return the distinct set of
+#         *active* root categories that lie on the path to those nodes.
+#         """
+#         # (1) fetch only the columns we need – id & parent_id
+#         lookup = dict(
+#             Category.objects
+#             .filter(is_active=True)
+#             .values_list("id", "parent_id")
+#         )
+#
+#         root_ids = set()
+#         for cat_id in cats_qs.values_list("id", flat=True).distinct():
+#             cur = cat_id
+#             # climb up until we hit the top (parent_id == None)
+#             while cur and cur in lookup:
+#                 parent = lookup[cur]
+#                 if parent is None:  # ← root reached
+#                     root_ids.add(cur)
+#                     break
+#                 cur = parent
+#         return (
+#             Category.objects
+#             .filter(id__in=root_ids, is_active=True)
+#             .order_by("name")
+#         )
+#
+#     # -------------------------------------------------------------
+#     # GET
+#     # -------------------------------------------------------------
+#     def get(self, request, *args, **kwargs):
+#
+#         # --- 1) full tree (unchanged) ----------------------------
+#         all_roots = (
+#             Category.objects
+#             .filter(is_active=True, parent__isnull=True)
+#             .order_by("name")
+#         )
+#
+#         # --- 2) product / service roots --------------------------
+#         product_nodes = Category.objects.filter(products__isnull=False)
+#         service_nodes = Category.objects.filter(services__isnull=False)
+#
+#         product_roots = self._active_roots(product_nodes)
+#         service_roots = self._active_roots(service_nodes)
+#
+#         ctx = {"request": request}
+#         serializer = CategoryTreeSerializer
+#
+#         payload = {
+#             "categories": serializer(all_roots, many=True, context=ctx).data,
+#             "product_categories": serializer(product_roots, many=True, context=ctx).data,
+#             "service_categories": serializer(service_roots, many=True, context=ctx).data,
+#         }
+#         return ok("OK", payload)
+#
+#
+# @extend_schema(tags=["Product Public Category Details"])
+# class PublicCategoryDetail(generics.RetrieveAPIView):
+#     """
+#     GET /categories/<pk>/
+#
+#     Returns the subtree starting at `<pk>` *plus* meta flags that help
+#     the front-end decide what UI controls to show.
+#
+#     Response
+#     --------
+#     {
+#       "code": 1,
+#       "message": "OK",
+#       "data": CategoryDetailSerializer
+#     }
+#     """
+#     lookup_field = "pk"
+#     queryset = Category.objects.filter(is_active=True)
+#     serializer_class = CategoryDetailSerializer
+#
+#     def retrieve(self, request, *args, **kwargs):
+#         obj = self.get_object()
+#         ser = self.get_serializer(obj, context={"request": request})
+#         return ok("OK", ser.data)
 
 
 # quick “random N” helpers  ----------------------------------
@@ -379,7 +389,6 @@ class SellerProductViewSet(viewsets.ModelViewSet):
     permission_classes = (IsVendor,)
     parser_classes = (MultiPartParser, FormParser)
     pagination_class = DefaultPagination
-    lookup_field = 'product_id'
     queryset = (
         Product.objects
         .select_related("category", "business")
@@ -388,6 +397,7 @@ class SellerProductViewSet(viewsets.ModelViewSet):
     filter_backends = (DjangoFilterBackend, filters.SearchFilter)
     filterset_class = _ProductFilter
     search_fields = ("name", "slug", "description")
+    lookup_field = 'product_id'
 
     def get_serializer_class(self):
         if self.action == "retrieve":
@@ -398,7 +408,6 @@ class SellerProductViewSet(viewsets.ModelViewSet):
         return super().get_queryset().filter(seller=self.request.user)
 
     def perform_create(self, serializer):
-        print(serializer)
         serializer.save(seller=self.request.user)
 
     def perform_update(self, serializer):
@@ -406,14 +415,11 @@ class SellerProductViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, context={"request": request})
-        print(request.data)
         try:
             serializer.is_valid(raise_exception=True)
             self.perform_create(serializer)
         except serializers.ValidationError as exc:
-            print(exc)
-            print("validation did not go through")
-            return fail("Validation error", exc)
+            return fail("Validation error", error_message=flatten_error(exc.detail))
         return ok("Product created successfully", serializer.data)
 
     def update(self, request, *args, **kwargs):
@@ -426,8 +432,7 @@ class SellerProductViewSet(viewsets.ModelViewSet):
             serializer.is_valid(raise_exception=True)
             self.perform_update(serializer)
         except serializers.ValidationError as exc:
-            print(exc)
-            return fail("Validation error", exc.detail)
+            return fail("Validation error", error_message=flatten_error(exc.detail))
         return ok("Product updated successfully", serializer.data)
 
     def partial_update(self, request, *args, **kwargs):
@@ -464,22 +469,6 @@ class SellerProductViewSet(viewsets.ModelViewSet):
         return ok("OK", serializer.data)
 
 
-    def destroy(self, request, *args, **kwargs):
-        product = self.get_object()
-
-        has_pending = DirectOrder.objects.filter(
-            product=product,
-            status__in=['pending']
-        ).exists()
-
-        if has_pending:
-            return fail(
-                "Cannot delete product while there are pending orders."
-            )
-
-        return super().destroy(request, *args, **kwargs)
-
-
 @extend_schema(tags=["Product Seller Services"])
 class SellerServiceViewSet(viewsets.ModelViewSet):
     """
@@ -493,8 +482,10 @@ class SellerServiceViewSet(viewsets.ModelViewSet):
     pagination_class = DefaultPagination
     filter_backends = (DjangoFilterBackend, filters.SearchFilter)
     filterset_class = _ServiceFilter
-    lookup_field = 'service_id'
     search_fields = ("title", "description")
+    lookup_field = 'service_id'
+
+    serializer_class = ServiceSerializer
 
     queryset = (
         Service.objects
@@ -505,7 +496,11 @@ class SellerServiceViewSet(viewsets.ModelViewSet):
 
     # choose serializer
     def get_serializer_class(self):
-        return ServiceDetailSerializer if self.action == "retrieve" else ServiceSerializer
+        # on GET /services/<pk>/ use the “rich” Detail serializer
+        if self.action == 'retrieve':
+            print("was a retrieve")
+            return ServiceDetailSerializer
+        return super().get_serializer_class()
 
     # scope to this vendor
     def get_queryset(self):
@@ -532,10 +527,13 @@ class SellerServiceViewSet(viewsets.ModelViewSet):
 
     # override create
     def create(self, request, *args, **kwargs):
-        ser = self.get_serializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        self.perform_create(ser)
-        return ok("Service created successfully.", ser.data)
+        serializer = self.get_serializer(data=request.data, context={"request": request})
+        try:
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+        except serializers.ValidationError as exc:
+            return fail("Validation error", error_message=flatten_error(exc.detail))
+        return ok("Service created successfully", serializer.data)
 
     # override update (PUT/PATCH)
     def update(self, request, *args, **kwargs):
@@ -1062,15 +1060,15 @@ class SellerSearchView(generics.ListAPIView):
         return qs.select_related("vendorprofile").order_by("vendorprofile__display_name")
 
 
-@extend_schema(tags=["Product Categories"])
-class CategorySearchView(AutocompleteMixin):
-    """
-    Uses the light *mini* serializer (id & name only) so the
-    autocomplete payload stays tiny.
-    """
-    base_qs = Category.objects.filter(is_active=True)
-    serializer_class = CategoryMiniSerializer
-    search_fields = ("name", "description")
+# @extend_schema(tags=["Product Categories"])
+# class CategorySearchView(AutocompleteMixin):
+#     """
+#     Uses the light *mini* serializer (id & name only) so the
+#     autocomplete payload stays tiny.
+#     """
+#     base_qs = Category.objects.filter(is_active=True)
+#     serializer_class = CategoryMiniSerializer
+#     search_fields = ("name", "description")
 
 
 @extend_schema(tags=["Product Conditions"])
@@ -1124,3 +1122,136 @@ class ServicePricingChoiceViewSet(viewsets.ReadOnlyModelViewSet):
         obj = self.get_object()
         serializer = self.get_serializer(obj)
         return ok("OK", serializer.data)
+
+
+class TopProductsView(ListAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = ProductSerializer
+
+    def get_queryset(self):
+        return (
+            Product.objects.annotate(order_count=Count("direct_orders"))
+            .filter(is_active=True)
+            .order_by("-order_count")[:10]
+        )
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return ok("Top 10 popular products", serializer.data)
+
+
+class TopServicesView(ListAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = ServiceSerializer
+
+    def get_queryset(self):
+        return (
+            Service.objects.annotate(booking_count=Count("direct_bookings"))
+            .filter(is_active=True)
+            .order_by("-booking_count")[:10]
+        )
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return ok("Top 10 popular services", serializer.data)
+
+
+# ────────────────────────────────────────────────
+# 1.a  PRODUCT CATEGORY TREE & DETAIL & SEARCH
+# ────────────────────────────────────────────────
+
+@extend_schema(tags=["Product Categories"])
+class PublicProductCategoryTree(ListAPIView):
+    """
+    GET /product-categories/tree/
+    full active tree of product categories
+    """
+    permission_classes = (Everyone,)
+    queryset = Category.objects.filter(
+        type=Category.PRODUCT,
+        is_active=True,
+        parent__isnull=True
+    ).order_by("name")
+    serializer_class = CategoryTreeSerializer
+
+
+@extend_schema(tags=["Product Categories"])
+class PublicProductCategoryDetail(RetrieveAPIView):
+    """
+    GET /product-categories/<pk>/
+    subtree + detail flags for products
+    """
+    permission_classes = (Everyone,)
+    lookup_field = "pk"
+    queryset = Category.objects.filter(
+        type=Category.PRODUCT,
+        is_active=True
+    )
+    serializer_class = CategoryDetailSerializer
+
+    def retrieve(self, request, *args, **kwargs):
+        obj = self.get_object()
+        data = self.get_serializer(obj, context={"request": request}).data
+        return ok("OK", data)
+
+
+@extend_schema(tags=["Product Categories"])
+class ProductCategorySearchView(AutocompleteMixin):
+    """
+    Autocomplete (id/name) for product categories
+    """
+    base_qs = Category.objects.filter(type=Category.PRODUCT, is_active=True)
+    serializer_class = CategoryMiniSerializer
+    search_fields = ("name", "description")
+
+
+# ────────────────────────────────────────────────
+# 1.b  SERVICE CATEGORY TREE & DETAIL & SEARCH
+# ────────────────────────────────────────────────
+
+@extend_schema(tags=["Service Categories"])
+class PublicServiceCategoryTree(ListAPIView):
+    """
+    GET /service-categories/tree/
+    full active tree of service categories
+    """
+    permission_classes = (Everyone,)
+    queryset = Category.objects.filter(
+        type=Category.SERVICE,
+        is_active=True,
+        parent__isnull=True
+    ).order_by("name")
+    serializer_class = CategoryTreeSerializer
+
+
+@extend_schema(tags=["Service Categories"])
+class PublicServiceCategoryDetail(RetrieveAPIView):
+    """
+    GET /service-categories/<pk>/
+    subtree + detail flags for services
+    """
+    permission_classes = (Everyone,)
+    lookup_field = "pk"
+    queryset = Category.objects.filter(
+        type=Category.SERVICE,
+        is_active=True
+    )
+    serializer_class = CategoryDetailSerializer
+
+    def retrieve(self, request, *args, **kwargs):
+        obj = self.get_object()
+        data = self.get_serializer(obj, context={"request": request}).data
+        return ok("OK", data)
+
+
+@extend_schema(tags=["Service Categories"])
+class ServiceCategorySearchView(AutocompleteMixin):
+    """
+    Autocomplete (id/name) for service categories
+    """
+    base_qs = Category.objects.filter(type=Category.SERVICE, is_active=True)
+    serializer_class = CategoryMiniSerializer
+    search_fields = ("name", "description")
+
