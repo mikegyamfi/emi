@@ -53,20 +53,69 @@ class SKU(models.Model):
 
 # Create your models here.
 class Category(models.Model):
-    """Product and service categories"""
+    PRODUCT = 'product'
+    SERVICE = 'service'
+    TYPE_CHOICES = [
+        (PRODUCT, 'Product'),
+        (SERVICE, 'Service'),
+    ]
+
     name = models.CharField(max_length=100)
-    parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children')
+    type = models.CharField(max_length=8, choices=TYPE_CHOICES, db_index=True, null=True, blank=True)
+    parent = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True, blank=True,
+        related_name='children'
+    )
     description = models.TextField()
     icon = models.ImageField(upload_to='category_icons/', null=True, blank=True)
     is_active = models.BooleanField(default=True)
-    featured = models.BooleanField(default=False,)
+    featured = models.BooleanField(default=False)
     available_sku = models.ManyToManyField(SKU, blank=True)
+
+    def save(self, *args, **kwargs):
+        # 1) If this category has a parent, always inherit its type
+        if self.parent:
+            parent_type = self.parent.type
+            if self.type != parent_type:
+                self.type = parent_type
+
+        # 2) Grab old_type so we know if it changed
+        old_type = None
+        if self.pk:
+            old_type = (
+                Category.objects
+                .filter(pk=self.pk)
+                .values_list("type", flat=True)
+                .first()
+            )
+
+        # 3) Save self
+        super().save(*args, **kwargs)
+
+        # 4) If type is new or changed, push it down to all descendants
+        if old_type != self.type:
+            self._cascade_type_to_descendants()
+
+    def _cascade_type_to_descendants(self):
+        """
+        Recursively set every child's `.type` to match this one,
+        then let each child trigger the same on its own children.
+        """
+        for child in self.children.all():
+            if child.type != self.type:
+                child.type = self.type
+                child.save()  # will in turn cascade further down
+
+    def __str__(self):
+        return f"{self.name} ({self.get_type_display()})"
 
     class Meta:
         verbose_name_plural = "Categories"
 
     def __str__(self):
-        return self.name
+        return f"{self.name} ({self.get_type_display()})"
 
 
 class ProductCondition(models.Model):
@@ -112,13 +161,19 @@ class Product(models.Model):
     business = models.ForeignKey("business.Business", on_delete=models.CASCADE,
                                  related_name="products", null=True, blank=True)
 
-    category = models.ForeignKey(Category, on_delete=models.PROTECT,
-                                 related_name="products")
+    # category = models.ForeignKey(Category, on_delete=models.PROTECT,
+    #                              related_name="products")
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.PROTECT,
+        limit_choices_to={'type': Category.PRODUCT},
+        related_name='products'
+    )
     name = models.CharField(max_length=255)
     slug = models.CharField(max_length=255, unique=True)
 
     status = models.ForeignKey(ProductServiceStatus, on_delete=models.PROTECT,
-                               related_name="products")
+                               related_name="products", null=True, blank=True)
     sku = models.ForeignKey(SKU, on_delete=models.PROTECT,
                             related_name="products", null=True, blank=True)
 
@@ -130,12 +185,12 @@ class Product(models.Model):
     quantity = models.PositiveIntegerField(default=1)
 
     condition = models.ForeignKey(ProductCondition, on_delete=models.PROTECT,
-                                  related_name="products")
+                                  related_name="products", null=True, blank=True)
 
     attributes = models.ManyToManyField(Attributes, related_name="products",
-                                        blank=True)
+                                        blank=True, null=True)
     tags = models.ManyToManyField(Tag, related_name="products",
-                                  blank=True)
+                                  blank=True, null=True)
 
     featured = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
@@ -181,8 +236,14 @@ class Service(models.Model):
     business = models.ForeignKey("business.Business", on_delete=models.CASCADE,
                                  related_name="services", null=True, blank=True)
 
-    category = models.ForeignKey(Category, on_delete=models.PROTECT,
-                                 related_name="services")
+    # category = models.ForeignKey(Category, on_delete=models.PROTECT,
+    #                              related_name="services")
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.PROTECT,
+        limit_choices_to={'type': Category.SERVICE},
+        related_name='services'
+    )
     title = models.CharField(max_length=255)
     description = models.TextField()
 
@@ -196,8 +257,8 @@ class Service(models.Model):
     district = models.ManyToManyField(District, blank=True)
     town = models.ManyToManyField(Town, blank=True)
 
-    tags = models.ManyToManyField(Tag, blank=True)
-    attributes = models.ManyToManyField(Attributes, blank=True)
+    tags = models.ManyToManyField(Tag, blank=True, null=True)
+    attributes = models.ManyToManyField(Attributes, blank=True, null=True)
 
     is_remote = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
@@ -222,42 +283,3 @@ class ServiceImage(models.Model):
 
     def __str__(self):
         return f"Image for {self.service.title}"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
