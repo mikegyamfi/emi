@@ -60,39 +60,33 @@ class AttributeAdmin(admin.ModelAdmin):
 @admin.register(models.Category)
 class CategoryAdmin(admin.ModelAdmin):
     list_display = (
-        "name", "parent", "is_active",
-        "children_count", "product_count", "service_count",
+        "name",
+        "parent",
+        "type",         # show product|service
+        "is_active",
+        "children_count",
         "preview_icon",
     )
-    list_filter = ("is_active", "parent")
+    list_filter = ("type", "is_active", "parent")
     search_fields = ("name", "description")
     readonly_fields = ("preview_icon",)
     ordering = ("parent__name", "name")
 
     def get_queryset(self, request):
-        return (
-            super()
-            .get_queryset(request)
-            .prefetch_related("children", "products", "services")
-        )
+        # only need children prefetched now
+        return super().get_queryset(request).prefetch_related("children")
 
-    # --- helper columns ------------------------------------
     @admin.display(description="# children")
     def children_count(self, obj):
         return obj.children.count()
 
-    @admin.display(description="# products")
-    def product_count(self, obj):
-        return obj.products.count()
-
-    @admin.display(description="# services")
-    def service_count(self, obj):
-        return obj.services.count()
-
     @admin.display(description="Icon")
     def preview_icon(self, obj):
         if obj.icon:
-            return format_html("<img src='{}' style='height:32px' />", obj.icon.url)
+            return format_html(
+                "<img src='{}' style='height:32px' />",
+                obj.icon.url
+            )
         return "—"
 
 
