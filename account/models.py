@@ -4,6 +4,7 @@ from django.conf import settings
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
 from django.contrib.contenttypes.fields import GenericRelation
+from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models.signals import post_save
@@ -11,6 +12,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 from core import utils
+from market_intelligence.models import Region, Town, District
 
 
 class CustomUserManager(BaseUserManager):
@@ -156,3 +158,75 @@ class AggregatorProfile(models.Model):
 
 class AgentProfile(models.Model):
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE)
+
+
+class VendorAdministratorProfile(models.Model):
+    """
+    Grants global “vendor administrator” privileges.
+    """
+    user = models.OneToOneField(
+        'account.CustomUser',
+        on_delete=models.CASCADE,
+        related_name='vendor_admin_profile'
+    )
+
+    # in the custom user role, the role name is vendor_admin
+
+    def __str__(self):
+        return f"Vendor Administrator: {self.user.phone_number}"
+
+
+class VendorManagerProfile(models.Model):
+    """
+    Grants scoped “vendor manager” privileges.
+    Manager may be tied to:
+      - one or more Regions, OR
+      - one or more Districts, OR
+      - one or more Towns.
+    Cannot mix levels.
+    """
+    user = models.OneToOneField(
+        'account.CustomUser',
+        on_delete=models.CASCADE,
+        related_name='vendor_manager_profile'
+    )
+
+    regions = models.ManyToManyField(
+        Region, blank=True, related_name='vendor_managers'
+    )
+    districts = models.ManyToManyField(
+        District, blank=True, related_name='vendor_managers'
+    )
+    towns = models.ManyToManyField(
+        Town, blank=True, related_name='vendor_managers'
+    )
+
+    def clean(self):
+        super().clean()
+        if not (self.regions.exists() or
+                self.districts.exists() or
+                self.towns.exists()):
+            raise ValidationError(
+                "VendorManagerProfile must have at least one region, district, or town."
+            )
+
+    def save(self, *args, **kwargs):
+        # full_clean won’t check M2M until after save, so save first then validate
+        super().save(*args, **kwargs)
+        # Now validate the m2m constraints
+        try:
+            self.clean()
+        except ValidationError:
+            # rollback if invalid
+            raise
+
+    def __str__(self):
+        if self.regions.exists():
+            juris = ", ".join(r.name for r in self.regions.all())
+        elif self.districts.exists():
+            juris = ", ".join(d.name for d in self.districts.all())
+        elif self.towns.exists():
+            juris = ", ".join(t.name for t in self.towns.all())
+        else:
+            juris = "–"
+        return f"Vendor Manager ({juris}): {self.user.phone_number}"

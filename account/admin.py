@@ -11,7 +11,7 @@ from .models import (
     UserProfile,
     VendorProfile,
     AggregatorProfile,
-    AgentProfile,
+    AgentProfile, VendorManagerProfile, VendorAdministratorProfile,
 )
 
 
@@ -43,6 +43,20 @@ class AgentProfileInline(admin.StackedInline):
     can_delete = False
     extra = 0
     verbose_name_plural = "Agent profile"
+
+
+class VendorManagerInline(admin.StackedInline):
+    model = VendorManagerProfile
+    can_delete = False
+    extra = 0
+    verbose_name_plural = "Vendor Manager profile"
+
+
+class VendorAdminInline(admin.StackedInline):
+    model = VendorAdministratorProfile
+    can_delete = False
+    extra = 0
+    verbose_name_plural = "Vendor Admin profile"
 
 
 # ────────────────────────────────────────────────────────────
@@ -79,6 +93,8 @@ class UserAdmin(BaseUserAdmin):
         VendorProfileInline,
         AggregatorProfileInline,
         AgentProfileInline,
+        VendorManagerInline,
+        VendorAdminInline,
     )
 
     def get_roles(self, obj):
@@ -152,4 +168,5 @@ class VendorProfileAdmin(admin.ModelAdmin):
         super().delete_queryset(request, queryset)
 
 
-
+admin.site.register(VendorManagerProfile)
+admin.site.register(VendorAdministratorProfile)

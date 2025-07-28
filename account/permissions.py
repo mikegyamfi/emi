@@ -21,3 +21,17 @@ class IsSelfOrAdmin(BasePermission):
 
     def has_object_permission(self, request, view, obj):
         return request.user.is_staff or obj == request.user
+
+
+class IsVendorAdminOrManager(BasePermission):
+    """
+    Allow only users who are vendor_administrators or vendor_managers.
+    """
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(
+            user and user.is_authenticated and (
+                hasattr(user, "vendor_admin_profile") or
+                hasattr(user, "vendor_manager_profile")
+            )
+        )

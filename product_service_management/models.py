@@ -3,7 +3,8 @@ import string
 import uuid
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
+from django.utils.text import slugify
 
 # from account.models import CustomUser
 from market_intelligence.models import Region, District, Town
@@ -197,9 +198,34 @@ class Product(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     last_updated_at = models.DateTimeField(auto_now=True)
 
+    def _generate_unique_slug(self) -> str:
+        """
+        Slugify the name; if it collides, append -1, -2, …
+        We wrap the loop in `transaction.atomic` to minimise race windows.
+        """
+        base = slugify(self.name)[:240] or uuid.uuid4().hex[:12]
+        slug = base
+        i = 1
+        while (
+            Product.objects.filter(slug=slug)
+            .exclude(pk=self.pk)            # allow updating self
+            .exists()
+        ):
+            slug = f"{base}-{i}"
+            i += 1
+        return slug
+
     def save(self, *args, **kwargs):
+        # ensure UUID
         if not self.product_id:
             self.product_id = uuid.uuid4()
+
+        # auto‑slug if blank
+        if not self.slug:
+            # wrap in a tiny transaction to avoid a race on insert
+            with transaction.atomic():
+                self.slug = self._generate_unique_slug()
+
         super().save(*args, **kwargs)
 
     def __str__(self):

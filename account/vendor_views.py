@@ -1,7 +1,7 @@
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
-from rest_framework import generics, status
+from rest_framework import generics, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
@@ -9,10 +9,10 @@ from rest_framework.response import Response
 
 from core.response import fail, ok
 from core.utils import flatten_error
-from .models import CustomUser, VendorProfile
+from .models import CustomUser, VendorProfile, VendorAdministratorProfile, VendorManagerProfile
 from .serializers_vendor import (
     BecomeVendorSerializer,
-    VendorProfileSerializer, GhanaCardVerifySerializer,
+    VendorProfileSerializer, GhanaCardVerifySerializer, VendorAdministratorSerializer, VendorManagerSerializer,
 )
 from .tasks import send_vendor_welcome_email
 from .permissions import IsVendor, IsSelfOrAdmin
@@ -151,6 +151,57 @@ class VerifyVendorGhanaCardView(SafeAPIView):
 
         return ok(f"Ghana-card verified{' – ' + note if note else ''}.")
 
+
+class VendorAdministratorViewSet(viewsets.ModelViewSet):
+    """
+    GET  /api/v1/admin/vendor-administrators/       → list all
+    POST /api/v1/admin/vendor-administrators/       → assign a user
+    DELETE /api/v1/admin/vendor-administrators/{pk}/ → revoke
+    """
+    queryset = VendorAdministratorProfile.objects.select_related("user").all()
+    serializer_class = VendorAdministratorSerializer
+    permission_classes = [IsAdminUser]
+
+
+class VendorManagerViewSet(viewsets.ModelViewSet):
+    """
+    GET /api/v1/admin/vendor-managers/ → list all (+ count)
+       Query params: ?region_id=…&district_id=…&town_id=…
+       filters list to only those managers covering the given area.
+    POST   /api/v1/admin/vendor-managers/              → assign a user + jurisdictions
+    GET    /api/v1/admin/vendor-managers/{pk}/         → retrieve one
+    PATCH  /api/v1/admin/vendor-managers/{pk}/         → update jurisdictions
+    DELETE /api/v1/admin/vendor-managers/{pk}/         → revoke
+    """
+    queryset = VendorManagerProfile.objects.select_related("user") \
+        .prefetch_related("regions", "districts", "towns")
+    serializer_class = VendorManagerSerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        params = self.request.query_params
+        if region := params.get("region_id"):
+            qs = qs.filter(regions__id=region)
+        if district := params.get("district_id"):
+            qs = qs.filter(districts__id=district)
+        if town := params.get("town_id"):
+            qs = qs.filter(towns__id=town)
+        return qs
+
+    def list(self, request, *args, **kwargs):
+        """
+        Return { count: n, managers: [ …serialized… ] }
+        so you get both the list and how many match.
+        """
+        qs = self.get_queryset()
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            ser = self.get_serializer(page, many=True)
+            return self.get_paginated_response(ser.data)
+
+        ser = self.get_serializer(qs, many=True)
+        return Response({"count": qs.count(), "managers": ser.data}, status=status.HTTP_200_OK)
 
 
 

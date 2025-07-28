@@ -16,7 +16,7 @@ from .utils import get_or_create_cart
 
 class CartViewSet(viewsets.ViewSet):
     """
-    GET    /cart/               → fetch (and auto-create) your cart
+    GET    /cart/ → fetch (and auto-create) your cart
     POST   /cart/clear/         → remove all items
     """
     permission_classes = (IsAuthenticated,)

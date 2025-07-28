@@ -1,12 +1,17 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 
 from .vendor_views import BecomeVendorView, VendorMeView, VendorListView, VendorDetailView, AdminPromoteVendorView, \
-    VerifyVendorGhanaCardView
+    VerifyVendorGhanaCardView, VendorAdministratorViewSet, VendorManagerViewSet
 from .views import SignUpView, VerifyEmailView, ResendActivationView, LoginView, RefreshView, VerifyView, LogoutView, \
     PasswordResetRequestView, PasswordResetConfirmView, MeView, ChangePasswordView, UserListView, UserDetailView, \
     VerifyPhoneView, ResendPhoneActivationView
 
 app_name = 'account'
+
+router = DefaultRouter()
+router.register(r"vendor-administrators", VendorAdministratorViewSet, basename="vendor-admin")
+router.register(r"vendor-managers", VendorManagerViewSet, basename="vendor-manager")
 
 urlpatterns = [
     path("signup/", SignUpView.as_view(), name="signup"),
@@ -40,4 +45,5 @@ urlpatterns = [
         "admin/vendors/<int:vendor_id>/verify-ghana-card/",
         VerifyVendorGhanaCardView.as_view(),
     ),
+    path("vendor_mgt/", include(router.urls)),
 ]
