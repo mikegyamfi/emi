@@ -115,9 +115,6 @@ class Category(models.Model):
     class Meta:
         verbose_name_plural = "Categories"
 
-    def __str__(self):
-        return f"{self.name} ({self.get_type_display()})"
-
 
 class ProductCondition(models.Model):
     name = models.CharField(max_length=100)
@@ -207,9 +204,9 @@ class Product(models.Model):
         slug = base
         i = 1
         while (
-            Product.objects.filter(slug=slug)
-            .exclude(pk=self.pk)            # allow updating self
-            .exists()
+                Product.objects.filter(slug=slug)
+                        .exclude(pk=self.pk)  # allow updating self
+                        .exists()
         ):
             slug = f"{base}-{i}"
             i += 1
@@ -309,3 +306,97 @@ class ServiceImage(models.Model):
 
     def __str__(self):
         return f"Image for {self.service.title}"
+
+
+# class GenericProduct(models.Model):
+#     """
+#     One row per item in the master catalogue.
+#     NEVER tied to a particular seller.
+#     """
+#     product_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+#     name = models.CharField(max_length=255, db_index=True)
+#     slug = models.SlugField(max_length=255, unique=True, blank=True)
+#     description = models.TextField()
+#
+#     category = models.ForeignKey(
+#         "Category", on_delete=models.PROTECT,
+#         limit_choices_to={"type": Category.PRODUCT},
+#         related_name="catalogue_products"
+#     )
+#     sku = models.ForeignKey("SKU", on_delete=models.PROTECT, related_name="catalogue_products", null=True, blank=True)
+#     tags = models.ManyToManyField("Tag", blank=True)
+#     attributes = models.ManyToManyField("Attributes", blank=True)
+#
+#     featured = models.BooleanField(default=False)
+#     is_active = models.BooleanField(default=True)
+#
+#     created_at = models.DateTimeField(auto_now_add=True)
+#     last_updated_at = models.DateTimeField(auto_now=True)
+#
+#     # ---------- helpers -------------------------------------------------
+#     def _generate_unique_slug(self) -> str:
+#         base = slugify(self.name)[:240] or uuid.uuid4().hex[:12]
+#         slug = base
+#         i = 1
+#         while Product.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+#             slug = f"{base}-{i}"
+#             i += 1
+#         return slug
+#
+#     def save(self, *args, **kwargs):
+#         if not self.slug:
+#             with transaction.atomic():
+#                 self.slug = self._generate_unique_slug()
+#         super().save(*args, **kwargs)
+#
+#     def __str__(self):
+#         return self.name
+#
+#
+# class VendorProduct(models.Model):
+#     listing_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+#
+#     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="listings")
+#     seller = models.ForeignKey("account.CustomUser", on_delete=models.CASCADE, related_name="product_listings")
+#     business = models.ForeignKey("business.Business", on_delete=models.CASCADE, related_name="product_listings",
+#                                  null=True, blank=True)
+#
+#     # commercial data
+#     price = models.DecimalField(max_digits=10, decimal_places=2)
+#     discount_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+#     currency = models.CharField(max_length=10, default="GHS")
+#     quantity = models.PositiveIntegerField(default=1)
+#
+#     condition = models.ForeignKey("ProductCondition", on_delete=models.PROTECT, related_name="product_listings",
+#                                   null=True, blank=True)
+#     status = models.ForeignKey("ProductServiceStatus", on_delete=models.PROTECT, related_name="product_listings",
+#                                null=True, blank=True)
+#
+#     featured = models.BooleanField(default=False)
+#     is_active = models.BooleanField(default=True)
+#
+#     created_at = models.DateTimeField(auto_now_add=True)
+#     last_updated_at = models.DateTimeField(auto_now=True)
+#
+#     class Meta:
+#         unique_together = ("product", "seller", "business")  # one listing per vendor per product
+#         indexes = [
+#             models.Index(fields=["seller", "is_active"]),
+#             models.Index(fields=["product", "price"]),
+#         ]
+#
+#     def __str__(self):
+#         return f"{self.product.name} @ {self.price} {self.currency} by {self.seller}"
+#
+#
+# class ListingImage(models.Model):
+#     """
+#     Optional vendor‑specific photos (e.g. showing second‑hand condition).
+#     """
+#     listing = models.ForeignKey(ProductListing, on_delete=models.CASCADE, related_name="images")
+#     image = models.ImageField(upload_to="listing_images/")
+#     is_primary = models.BooleanField(default=False)
+#     created = models.DateTimeField(auto_now_add=True)
+#
+#     def __str__(self):
+#         return f"Image for listing {self.listing_id}"

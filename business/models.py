@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
-from account.models import VendorProfile
+from account import models as account_models
 
 
 # Create your models here.

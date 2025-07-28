@@ -1,6 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
+from .serializers_vendor import VendorProfileAdminViewSet
 from .vendor_views import BecomeVendorView, VendorMeView, VendorListView, VendorDetailView, AdminPromoteVendorView, \
     VerifyVendorGhanaCardView, VendorAdministratorViewSet, VendorManagerViewSet
 from .views import SignUpView, VerifyEmailView, ResendActivationView, LoginView, RefreshView, VerifyView, LogoutView, \
@@ -12,6 +13,7 @@ app_name = 'account'
 router = DefaultRouter()
 router.register(r"vendor-administrators", VendorAdministratorViewSet, basename="vendor-admin")
 router.register(r"vendor-managers", VendorManagerViewSet, basename="vendor-manager")
+router.register(r"vendor-manager/vendors", VendorProfileAdminViewSet, basename="vendor-mgmt-vendors")
 
 urlpatterns = [
     path("signup/", SignUpView.as_view(), name="signup"),

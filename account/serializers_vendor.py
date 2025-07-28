@@ -3,6 +3,7 @@
 # -----------------------------------------------------------
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import serializers, mixins, viewsets, filters, status
 from rest_framework.decorators import action
@@ -10,6 +11,8 @@ from rest_framework.response import Response
 
 from account.models import VendorProfile, Role, CustomUser, VendorAdministratorProfile, VendorManagerProfile
 from account.permissions import IsVendorAdminOrManager
+from core.response import ok, fail
+from core.utils import send_sms
 from document_manager.models import DocumentType, Document
 from market_intelligence.models import Region, District, Town
 from market_intelligence.serializers import RegionSerializer, DistrictSerializer, TownSerializer
@@ -299,6 +302,8 @@ class VendorProfileAdminViewSet(
     GET   /api/v1/vendor-mgmt/vendors/{pk}/     → retrieve one
     POST  /api/v1/vendor-mgmt/vendors/{pk}/verify/ → verify vendor
     """
+    lookup_field = "user_id"
+    lookup_url_kwarg = "user_id"
     serializer_class = VendorProfileAdminSerializer
     permission_classes = [IsVendorAdminOrManager]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
@@ -310,6 +315,16 @@ class VendorProfileAdminViewSet(
         "vendor_profile_verified": ["exact"],
     }
     search_fields = ["display_name", "user__first_name", "user__last_name", "user__phone_number"]
+
+    def get_object(self):
+        """
+        Retrieve the VendorProfile whose related user has id=URL['user_id'].
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+        user_id = self.kwargs[self.lookup_url_kwarg]
+        obj = get_object_or_404(queryset, user__id=user_id)
+        self.check_object_permissions(self.request, obj)
+        return obj
 
     def get_queryset(self):
         qs = VendorProfile.objects.select_related("user", "region", "district", "town")
@@ -360,16 +375,80 @@ class VendorProfileAdminViewSet(
         }, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"])
-    def verify(self, request, pk=None):
+    def verify(self, request, user_id=None):
         """
-        POST /api/v1/vendor-mgmt/vendors/{pk}/verify/
+        POST /api/v1/vendor-mgmt/vendors/{user_id}/verify/
         Atomically sets both verification flags to True.
+        Returns core.response.ok / fail format.
         """
         profile = self.get_object()
+        try:
+            with transaction.atomic():
+                profile.ghana_card_verified = True
+                profile.vendor_profile_verified = True
+                profile.save(update_fields=[
+                    "ghana_card_verified",
+                    "vendor_profile_verified",
+                ])
+        except Exception as exc:
+            return fail(
+                "Vendor verification failed.",
+                error_message=str(exc),
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # serialize updated profile
+        serializer = self.get_serializer(profile)
+        return ok(
+            "Vendor verified successfully.",
+            data=serializer.data,
+            status=status.HTTP_200_OK
+        )
+
+    @action(detail=True, methods=["post"])
+    def unverify(self, request, user_id=None):
+        """
+        POST /api/v1/vendor-mgmt/vendors/{user_id}/unverify/
+        Body: { "reason": "<text>" }
+
+        Atomically clears both verification flags and sends an SMS
+        with the given reason to the vendor’s phone.
+        """
+        reason = request.data.get("reason", "").strip()
+        if not reason:
+            return fail(
+                "Unverification failed.",
+                error_message="A reason is required.",
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        profile = self.get_object()
+        phone = profile.user.phone_number
+
         with transaction.atomic():
-            profile.ghana_card_verified = True
-            profile.vendor_profile_verified = True
-            profile.save(update_fields=["ghana_card_verified", "vendor_profile_verified"])
+            profile.ghana_card_verified = False
+            profile.vendor_profile_verified = False
+            profile.save(update_fields=[
+                "ghana_card_verified",
+                "vendor_profile_verified",
+            ])
+
+            try:
+                # send_sms(to, message)
+                send_sms(
+                    phone_number=phone,
+                    message=(
+                        f"Hello {profile.display_name}, your vendor verification "
+                        f"has been revoked for the following reason:\n\n{reason}"
+                    )
+                )
+            except Exception as e:
+                print(e)
+                pass
 
         serializer = self.get_serializer(profile)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return ok(
+            "Vendor unverified successfully.",
+            data=serializer.data,
+            status=status.HTTP_200_OK
+        )

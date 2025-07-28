@@ -133,7 +133,8 @@ class RoleAdmin(admin.ModelAdmin):
 class VendorProfileAdmin(admin.ModelAdmin):
     list_display = (
         'user', 'display_name', 'ghana_card_id', 'is_verified',
-        'region', 'district', 'town', 'date_of_birth'
+        'region', 'district', 'town', 'date_of_birth',
+        'ghana_card_verified', 'vendor_profile_verified',
     )
     list_filter = (
         'ghana_card_verified', 'vendor_profile_verified',
@@ -142,7 +143,12 @@ class VendorProfileAdmin(admin.ModelAdmin):
     search_fields = (
         'display_name', 'ghana_card_id', 'user__phone_number', 'user__email'
     )
-    readonly_fields = ('ghana_card_verified', 'vendor_profile_verified')
+
+    # Remove these from readonly_fields so they become editable
+    readonly_fields = ()
+
+    # (Optional) allow inline editing of the checkboxes in the list view
+    list_editable = ('ghana_card_verified', 'vendor_profile_verified',)
 
     def delete_model(self, request, obj):
         """
