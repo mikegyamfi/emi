@@ -139,11 +139,11 @@ WSGI_APPLICATION = 'emi_skeleton.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'HOST': 'dbaas-db-6131573-do-user-22177047-0.f.db.ondigitalocean.com',
+        'HOST': config("POSTGRES_HOST"),
         'PORT': '25060',
         'NAME': 'defaultdb',
         'USER': 'doadmin',
-        'PASSWORD': 'AVNS_FKFjFHmIe95Hp8h4IMB',
+        'PASSWORD': config("POSTGRES_PASSWORD"),
         'OPTIONS': {
             'sslmode': 'require',
             'sslrootcert': os.path.expanduser('~/certs/do‑ca‑bundle.crt'),
