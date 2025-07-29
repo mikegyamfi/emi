@@ -128,8 +128,9 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'emi_skeleton.wsgi.application'
 
+USE_LITE = config("USE_LITE", default=False, cast=bool)
 
-if config("USE_LITE"):
+if USE_LITE:
     DATABASES = {
             'default': {
                 'ENGINE': 'django.db.backends.sqlite3',
