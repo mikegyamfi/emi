@@ -16,44 +16,44 @@ from .models import (
 # ────────────────────────────────────────────────────────────
 @admin.register(SKU)
 class SKUAdmin(admin.ModelAdmin):
-    list_display   = ("name", "description")
-    search_fields  = ("name", "description")
-    ordering       = ("name",)
+    list_display = ("name", "description")
+    search_fields = ("name", "description")
+    ordering = ("name",)
 
 
 @admin.register(ProductCondition)
 class ProductConditionAdmin(admin.ModelAdmin):
-    list_display  = ("name", "description")
+    list_display = ("name", "description")
     search_fields = ("name",)
-    ordering      = ("name",)
+    ordering = ("name",)
 
 
 @admin.register(ProductServiceStatus)
 class ProductServiceStatusAdmin(admin.ModelAdmin):
-    list_display  = ("name", "description")
+    list_display = ("name", "description")
     search_fields = ("name",)
-    ordering      = ("name",)
+    ordering = ("name",)
 
 
 @admin.register(ServicePricingChoices)
 class ServicePricingChoiceAdmin(admin.ModelAdmin):
-    list_display  = ("name", "description")
+    list_display = ("name", "description")
     search_fields = ("name",)
-    ordering      = ("name",)
+    ordering = ("name",)
 
 
 @admin.register(Tag)
 class TagAdmin(admin.ModelAdmin):
-    list_display  = ("name",)
+    list_display = ("name",)
     search_fields = ("name",)
-    ordering      = ("name",)
+    ordering = ("name",)
 
 
 @admin.register(Attributes)
 class AttributeAdmin(admin.ModelAdmin):
-    list_display  = ("name", "value", "description")
+    list_display = ("name", "value", "description")
     search_fields = ("name", "value")
-    ordering      = ("name",)
+    ordering = ("name",)
 
 
 # ────────────────────────────────────────────────────────────
@@ -61,14 +61,14 @@ class AttributeAdmin(admin.ModelAdmin):
 # ────────────────────────────────────────────────────────────
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display   = (
+    list_display = (
         "name", "parent", "type", "is_active",
         "children_count", "preview_icon"
     )
-    list_filter    = ("type", "is_active", "parent")
-    search_fields  = ("name", "description")
-    readonly_fields= ("preview_icon",)
-    ordering       = ("parent__name", "name")
+    list_filter = ("type", "is_active", "parent")
+    search_fields = ("name", "description")
+    readonly_fields = ("preview_icon",)
+    ordering = ("parent__name", "name")
 
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related("children")
@@ -88,9 +88,9 @@ class CategoryAdmin(admin.ModelAdmin):
 # 3.  GENERIC PRODUCT & IMAGES
 # ────────────────────────────────────────────────────────────
 class ProductImageInline(admin.TabularInline):
-    model           = ProductImage
-    extra           = 1
-    fields          = ("image", "is_primary", "created", "preview")
+    model = ProductImage
+    extra = 1
+    fields = ("image", "is_primary", "created", "preview")
     readonly_fields = ("created", "preview")
 
     @admin.display(description="Preview")
@@ -102,18 +102,18 @@ class ProductImageInline(admin.TabularInline):
 
 @admin.register(GenericProduct)
 class GenericProductAdmin(admin.ModelAdmin):
-    list_display      = (
+    list_display = (
         "name", "slug", "category",
         "featured", "is_active", "created_at"
     )
-    list_filter       = ("is_active", "featured", "category")
-    search_fields     = ("name", "description", "sku__name", "tags__name")
+    list_filter = ("is_active", "featured", "category")
+    search_fields = ("name", "description", "sku__name", "tags__name")
     autocomplete_fields = (
         "category", "sku", "tags", "attributes"
     )
-    inlines           = (ProductImageInline,)
-    readonly_fields   = ("created_at", "last_updated_at")
-    date_hierarchy    = "created_at"
+    inlines = (ProductImageInline,)
+    readonly_fields = ("created_at", "last_updated_at")
+    date_hierarchy = "created_at"
 
     def get_queryset(self, request):
         return (
@@ -128,9 +128,9 @@ class GenericProductAdmin(admin.ModelAdmin):
 # 4.  VENDOR PRODUCT & IMAGES
 # ────────────────────────────────────────────────────────────
 class VendorProductImageInline(admin.TabularInline):
-    model           = VendorProductImage
-    extra           = 1
-    fields          = ("image", "is_primary", "created", "preview")
+    model = VendorProductImage
+    extra = 1
+    fields = ("image", "is_primary", "created", "preview")
     readonly_fields = ("created", "preview")
 
     @admin.display(description="Preview")
@@ -142,16 +142,16 @@ class VendorProductImageInline(admin.TabularInline):
 
 @admin.register(VendorProduct)
 class VendorProductAdmin(admin.ModelAdmin):
-    list_display      = (
+    list_display = (
         "listing_id", "product", "seller", "business",
         "price", "quantity", "condition", "status",
         "featured", "is_active", "created_at"
     )
-    list_filter       = (
+    list_filter = (
         "is_active", "featured", "product",
         "seller", "business", "condition", "status", "created_at"
     )
-    search_fields     = (
+    search_fields = (
         "product__name",
         "seller__phone_number",
         "seller__email"
@@ -159,9 +159,9 @@ class VendorProductAdmin(admin.ModelAdmin):
     autocomplete_fields = (
         "product", "seller", "business", "condition", "status"
     )
-    inlines           = (VendorProductImageInline,)
-    readonly_fields   = ("created_at", "last_updated_at")
-    date_hierarchy    = "created_at"
+    inlines = (VendorProductImageInline,)
+    readonly_fields = ("created_at", "last_updated_at")
+    date_hierarchy = "created_at"
 
     def get_queryset(self, request):
         return (
@@ -175,9 +175,9 @@ class VendorProductAdmin(admin.ModelAdmin):
 # 5.  GENERIC SERVICE & IMAGES
 # ────────────────────────────────────────────────────────────
 class ServiceImageInline(admin.TabularInline):
-    model           = ServiceImage
-    extra           = 1
-    fields          = ("image", "is_primary", "created", "preview")
+    model = ServiceImage
+    extra = 1
+    fields = ("image", "is_primary", "created", "preview")
     readonly_fields = ("created", "preview")
 
     @admin.display(description="Preview")
@@ -189,16 +189,16 @@ class ServiceImageInline(admin.TabularInline):
 
 @admin.register(GenericService)
 class GenericServiceAdmin(admin.ModelAdmin):
-    list_display      = (
+    list_display = (
         "title", "slug", "category",
         "is_active", "created_at"
     )
-    list_filter       = ("is_active", "category", "created_at")
-    search_fields     = ("title", "description")
+    list_filter = ("is_active", "category", "created_at")
+    search_fields = ("title", "description")
     autocomplete_fields = ("category",)
-    inlines           = (ServiceImageInline,)
-    readonly_fields   = ("created_at", "updated_at")
-    date_hierarchy    = "created_at"
+    inlines = (ServiceImageInline,)
+    readonly_fields = ("created_at", "updated_at")
+    date_hierarchy = "created_at"
 
     def get_queryset(self, request):
         return (
@@ -212,9 +212,9 @@ class GenericServiceAdmin(admin.ModelAdmin):
 # 6.  VENDOR SERVICE & IMAGES
 # ────────────────────────────────────────────────────────────
 class VendorServiceImageInline(admin.TabularInline):
-    model           = VendorServiceImage
-    extra           = 1
-    fields          = ("image", "is_primary", "created", "preview")
+    model = VendorServiceImage
+    extra = 1
+    fields = ("image", "is_primary", "created", "preview")
     readonly_fields = ("created", "preview")
 
     @admin.display(description="Preview")
@@ -226,18 +226,18 @@ class VendorServiceImageInline(admin.TabularInline):
 
 @admin.register(VendorService)
 class VendorServiceAdmin(admin.ModelAdmin):
-    list_display      = (
+    list_display = (
         "listing_id", "service", "provider", "business",
         "pricing_type", "price", "is_remote", "featured",
         "is_active", "created_at", "region_list",
         "district_list", "town_list",
     )
-    list_filter       = (
+    list_filter = (
         "is_active", "is_remote", "pricing_type",
         "service", "regions", "districts", "towns",
         "created_at",
     )
-    search_fields     = (
+    search_fields = (
         "service__title",
         "provider__phone_number",
         "provider__email",
@@ -246,9 +246,9 @@ class VendorServiceAdmin(admin.ModelAdmin):
         "service", "provider", "business",
         "pricing_type", "regions", "districts", "towns"
     )
-    inlines           = (VendorServiceImageInline,)
-    readonly_fields   = ("created_at", "updated_at")
-    date_hierarchy    = "created_at"
+    inlines = (VendorServiceImageInline,)
+    readonly_fields = ("created_at", "updated_at")
+    date_hierarchy = "created_at"
 
     @admin.display(description="Regions")
     def region_list(self, obj):

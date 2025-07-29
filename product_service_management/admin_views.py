@@ -1,30 +1,25 @@
-from random import sample
-
 from django.conf import settings
 from django.core.mail import send_mail
-from django.db.models import Prefetch, Q
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
-
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, status, generics, filters
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser
-from rest_framework.response import Response
-from django_filters.rest_framework import DjangoFilterBackend
 
 from business.models import Business
 from business.serializers import BusinessBriefSerializer
-from .models import GenericProduct, GenericService, VendorProduct, VendorService
-from .admin_serializers import (
-    _AdminToggleMixin, SellerOverviewSerializer
-)
-from .serializers import (
-    ProductSerializer, ServiceSerializer,
-    ProductMiniSerializer, ServiceMiniSerializer,
-)
+from core.response import ok
 from .admin_filters import (
     AdminProductFilter, AdminServiceFilter, AdminBusinessFilter
 )
-from core.response import ok  # the helper you already use
+from .admin_serializers import (
+    _AdminToggleMixin, SellerOverviewSerializer
+)
+from .models import VendorProduct, VendorService
+from .serializers import (
+    VendorProductSerializer, VendorServiceSerializer,
+)
 
 
 # ──────────────────────────────────────────────────────────
@@ -41,7 +36,7 @@ class AdminProductViewSet(viewsets.ReadOnlyModelViewSet):
         .select_related("seller", "business", "category")
         .prefetch_related("images", "tags")
     )
-    serializer_class = ProductSerializer
+    serializer_class = VendorProductSerializer
     permission_classes = (IsAdminUser,)
     filter_backends = (DjangoFilterBackend, filters.SearchFilter)
     filterset_class = AdminProductFilter
@@ -99,7 +94,7 @@ class AdminServiceViewSet(viewsets.ReadOnlyModelViewSet):
         .select_related("provider", "business", "category")
         .prefetch_related("tags", "attributes")
     )
-    serializer_class = ServiceSerializer
+    serializer_class = VendorServiceSerializer
     permission_classes = (IsAdminUser,)
     filter_backends = (DjangoFilterBackend, filters.SearchFilter)
     filterset_class = AdminServiceFilter

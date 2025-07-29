@@ -6,10 +6,10 @@ remains consistent for the front-end dashboard.
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from .models import Product, Service
+from .models import VendorProduct, VendorService
 from .serializers import (
-    ProductMiniSerializer,
-    ServiceMiniSerializer,
+    VendorProductSerializer,
+    VendorServiceSerializer,
     BusinessBriefSerializer,  # was created earlier
     VendorProfileSerializer,
 )
@@ -33,9 +33,9 @@ class _AdminToggleMixin(serializers.Serializer):
 
     def get_item(self, obj):
         # obj is either Product or Service
-        if isinstance(obj, Product):
-            return ProductMiniSerializer(obj, context=self.context).data
-        return ServiceMiniSerializer(obj, context=self.context).data
+        if isinstance(obj, VendorProduct):
+            return VendorProductSerializer(obj, context=self.context).data
+        return VendorServiceSerializer(obj, context=self.context).data
 
 
 # ──────────────────────────────────────────────────────────
@@ -50,17 +50,17 @@ class SellerOverviewSerializer(serializers.Serializer):
     """
     vendor_profile = VendorProfileSerializer(read_only=True, allow_null=True)
     businesses = serializers.SerializerMethodField()
-    standalone_products = ProductMiniSerializer(many=True, read_only=True)
-    standalone_services = ServiceMiniSerializer(many=True, read_only=True)
+    standalone_products = VendorProductSerializer(many=True, read_only=True)
+    standalone_services = VendorServiceSerializer(many=True, read_only=True)
 
     # helper --------------------------------------------------------
     def _business_block(self, biz):
         return {
             "business": BusinessBriefSerializer(biz, context=self.context).data,
-            "products": ProductMiniSerializer(
+            "products": VendorProductSerializer(
                 biz.products.all(), many=True, context=self.context
             ).data,
-            "services": ServiceMiniSerializer(
+            "services": VendorServiceSerializer(
                 biz.services.all(), many=True, context=self.context
             ).data,
         }
