@@ -101,36 +101,16 @@ class BecomeVendorSerializer(serializers.Serializer):
 
 
 class VendorProfileSerializer(serializers.ModelSerializer):
-    region = serializers.SerializerMethodField()
-    district = serializers.SerializerMethodField()
-    town = serializers.SerializerMethodField()
+    region = RegionSerializer(read_only=True)
+    district = DistrictSerializer(read_only=True)
+    town = TownSerializer(read_only=True)
 
     class Meta:
         model = VendorProfile
         fields = (
-            "display_name",
-            "bio",
-            "is_verified",
-            "date_of_birth",
-            "region",
-            "district",
-            "town",
+            "display_name", "bio", "is_verified", "date_of_birth",
+            "region", "district", "town",
         )
-
-    def get_region(self, obj):
-        if obj.region:
-            return {"id": obj.region.id, "name": obj.region.name}
-        return None
-
-    def get_district(self, obj):
-        if obj.district:
-            return {"id": obj.district.id, "name": obj.district.name}
-        return None
-
-    def get_town(self, obj):
-        if obj.town:
-            return {"id": obj.town.id, "name": obj.town.name}
-        return None
 
 
 class GhanaCardVerifySerializer(serializers.Serializer):

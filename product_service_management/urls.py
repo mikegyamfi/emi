@@ -12,7 +12,8 @@ from .views import (
     ServiceSearchView, BusinessSearchView, SellerSearchView, ServiceImageViewSet, VendorSKUViewSet,
     SKUSearchView, CategorySKUList, ProductConditionViewSet, ProductServiceStatusViewSet, ServicePricingChoiceViewSet,
     TopProductsView, TopServicesView, ProductCategorySearchView, ServiceCategorySearchView, PublicProductCategoryTree,
-    PublicProductCategoryDetail, PublicServiceCategoryTree, PublicServiceCategoryDetail,
+    PublicProductCategoryDetail, PublicServiceCategoryTree, PublicServiceCategoryDetail, GenericProductViewSet,
+    GenericServiceViewSet,
 )
 
 app_name = 'product_service_mgt'
@@ -27,6 +28,8 @@ router.register(r'sku', SKUViewSet, basename="sku")
 router.register(r"my_sku", VendorSKUViewSet, basename="my-sku")
 router.register(r'product-images', ProductImageViewSet, basename='product-image')
 router.register(r'service-images', ServiceImageViewSet, basename='service-image')
+router.register(r"generic-products", GenericProductViewSet, basename="generic-product")
+router.register(r"generic-services", GenericServiceViewSet, basename="generic-service")
 router.register(
     r"search/product-categories",
     ProductCategorySearchView,

@@ -80,12 +80,12 @@ class VendorNotification(models.Model):
     read = models.DateTimeField(null=True, blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
     product = models.ForeignKey(
-        'product_service_management.Product',
+        'product_service_management.VendorProduct',
         on_delete=models.SET_NULL, null=True, blank=True,
         related_name="direct_orders_notifications"
     )
     service = models.ForeignKey(
-        'product_service_management.Service',
+        'product_service_management.VendorService',
         on_delete=models.SET_NULL, null=True, blank=True,
         related_name="direct_booking_notifications"
     )

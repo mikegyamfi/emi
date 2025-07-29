@@ -51,7 +51,7 @@ class BecomeVendorView(SafeAPIView, APIView):
 
 
 @extend_schema(tags=["Vendors"])
-class VendorMeView(SafeAPIView, generics.RetrieveUpdateAPIView):
+class VendorMeView(generics.RetrieveUpdateAPIView):
     """
     GET  /vendors/me/    → view your vendor profile
     PATCH /vendors/me/   → update your vendor profile
@@ -60,12 +60,12 @@ class VendorMeView(SafeAPIView, generics.RetrieveUpdateAPIView):
     serializer_class = VendorProfileSerializer
 
     def get_object(self):
-        return self.request.user.vendorprofile
+        # return the single profile for request.user
+        return get_object_or_404(VendorProfile, user=self.request.user)
 
     def get(self, request, *args, **kwargs):
         vp = self.get_object()
-        data = self.get_serializer(vp).data
-        return ok("Vendor profile retrieved.", data)
+        return ok("Vendor profile retrieved.", self.get_serializer(vp).data)
 
     def patch(self, request, *args, **kwargs):
         vp = self.get_object()
@@ -74,8 +74,7 @@ class VendorMeView(SafeAPIView, generics.RetrieveUpdateAPIView):
             serializer.is_valid(raise_exception=True)
             serializer.save()
         except ValidationError as exc:
-            return fail(flatten_error(exc.detail), status=status.HTTP_400_BAD_REQUEST)
-
+            return fail("Validation error", error_message=exc.detail)
         return ok("Vendor profile updated.", serializer.data)
 
 

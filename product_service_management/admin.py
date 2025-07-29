@@ -107,9 +107,9 @@ class GenericProductAdmin(admin.ModelAdmin):
         "featured", "is_active", "created_at"
     )
     list_filter = ("is_active", "featured", "category")
-    search_fields = ("name", "description", "sku__name", "tags__name")
+    search_fields = ("name", "description")
     autocomplete_fields = (
-        "category", "sku", "tags", "attributes"
+        "category",
     )
     inlines = (ProductImageInline,)
     readonly_fields = ("created_at", "last_updated_at")
@@ -119,8 +119,7 @@ class GenericProductAdmin(admin.ModelAdmin):
         return (
             super()
             .get_queryset(request)
-            .select_related("category", "sku")
-            .prefetch_related("tags", "attributes")
+            .select_related("category")
         )
 
 
@@ -227,7 +226,7 @@ class VendorServiceImageInline(admin.TabularInline):
 @admin.register(VendorService)
 class VendorServiceAdmin(admin.ModelAdmin):
     list_display = (
-        "listing_id", "service", "provider", "business",
+        "vendor_service_id", "service", "provider", "business",
         "pricing_type", "price", "is_remote", "featured",
         "is_active", "created_at", "region_list",
         "district_list", "town_list",

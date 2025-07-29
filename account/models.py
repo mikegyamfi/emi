@@ -121,14 +121,14 @@ class CustomUser(AbstractUser):
 
 class UserProfile(models.Model):
     user_image = models.ImageField(upload_to='user_images', blank=True, null=True)
-    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE)
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
 
     def __str__(self):
         return self.user.phone_number
 
 
 class VendorProfile(models.Model):
-    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE)
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
     display_name = models.CharField(null=True, blank=True, max_length=250, unique=True)
     ghana_card_id = models.CharField(null=True, blank=True)
     ghana_card_verified = models.BooleanField(default=False)

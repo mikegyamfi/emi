@@ -3,6 +3,7 @@ from django.db.models import Avg, Count
 from rest_framework import serializers, generics
 from django.db import transaction
 from PIL import Image
+from rest_framework.generics import get_object_or_404
 
 from account.models import CustomUser, VendorProfile
 from account.serializers import VendorProfileSerializer
@@ -11,6 +12,7 @@ from business.serializers import BusinessBriefSerializer
 from core.response import ok
 from feedback.models import Feedback
 from feedback.serializers import FeedbackPublicSerializer
+from market_intelligence.serializers import RegionSerializer, DistrictSerializer
 from .models import (
     Category, SKU,
     Tag, Attributes,
@@ -455,9 +457,6 @@ class VendorProductSerializer(serializers.ModelSerializer):
         source="product", write_only=True
     )
     seller = SellerMiniSerializer(read_only=True)
-    seller_id = serializers.PrimaryKeyRelatedField(
-        queryset=CustomUser.objects.all(), source="seller", write_only=True
-    )
     business = BusinessBriefSerializer(read_only=True)
     business_id = serializers.PrimaryKeyRelatedField(
         queryset=Business.objects.all(), source="business",
@@ -504,9 +503,9 @@ class VendorProductSerializer(serializers.ModelSerializer):
             "name", "description",
             "listing_id", "object_type",
             "product", "product_id",
-            "seller", "seller_id", "business", "business_id",
+            "seller", "business", "business_id",
             "price", "currency", "discount_price", "quantity",
-            "stock_message",
+            "stock_message", "vendor_profile",
             "condition", "condition_id",
             "status", "status_id",
             "tags", "tag_ids",
@@ -528,7 +527,8 @@ class VendorProductSerializer(serializers.ModelSerializer):
 
     def get_vendor_profile(self, obj):
         try:
-            vp = obj.seller.vendorprofile
+            vp = get_object_or_404(VendorProfile, user=obj.seller)
+            print(vp)
         except VendorProfile.DoesNotExist:
             return None
         return VendorProfileSerializer(vp, context=self.context).data
@@ -556,14 +556,21 @@ class VendorProductSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Invalid image file")
         return imgs
 
-    def create(self, data):
-        images = data.pop("new_images", [])
-        tags = data.pop("tags", [])
-        attrs = data.pop("attributes", [])
+    def create(self, validated_data):
+        images = validated_data.pop("new_images", [])
+        tags = validated_data.pop("tags", [])
+        attrs = validated_data.pop("attributes", [])
+
+        # inject the authenticated user as seller
+        user = self.context["request"].user
+        validated_data["seller"] = user
+
         with transaction.atomic():
-            vp = VendorProduct.objects.create(**data)
-            vp.tags.set(tags)
-            vp.attributes.set(attrs)
+            vp = VendorProduct.objects.create(**validated_data)
+            if tags:
+                vp.tags.set(tags)
+            if attrs:
+                vp.attributes.set(attrs)
             for img in images:
                 VendorProductImage.objects.create(vendor_product=vp, image=img)
         return vp
@@ -637,15 +644,31 @@ class VendorProductDetailSerializer(VendorProductSerializer):
     rating_stats = serializers.SerializerMethodField(read_only=True)
 
     class Meta(VendorProductSerializer.Meta):
-        fields = VendorProductSerializer.Meta.fields + ("related_products", "feedback", "rating_stats")
+        fields = VendorProductSerializer.Meta.fields + (
+            "related_products", "feedback", "rating_stats"
+        )
+
+    def _root_category(self, cat):
+        # climb up until the topmost parent
+        while cat.parent_id:
+            cat = cat.parent
+        return cat
 
     def get_related_products(self, obj):
-        root = self._root_category(obj.category)
-        qs = GenericProduct.objects.filter(
-            category__in=[root] + list(root.children.all()),
+        # find the root of this product’s category tree
+        root = self._root_category(obj.product.category)
+
+        # now grab *other* vendor‑listings under that same branch
+        qs = VendorProduct.objects.filter(
+            product__category__in=[root] + list(root.children.all()),
             is_active=True
-        ).exclude(pk=obj.pk).select_related("category").prefetch_related("images").order_by("?")[:8]
-        return GenericProductMiniSerializer(qs, many=True, context=self.context).data
+        ).exclude(pk=obj.pk) \
+                 .select_related("product", "seller") \
+                 .prefetch_related("images") \
+                 .order_by("?")[:8]
+
+        # re‑use the lean serializer so the UI can choose how much to show
+        return VendorProductSerializer(qs, many=True, context=self.context).data
 
     def get_feedback(self, obj):
         ct = ContentType.objects.get_for_model(obj)
@@ -769,19 +792,16 @@ class VendorServiceSerializer(serializers.ModelSerializer):
         source="service", write_only=True
     )
     provider = SellerMiniSerializer(read_only=True)
-    provider_id = serializers.PrimaryKeyRelatedField(
-        queryset=CustomUser.objects.all(), source="provider", write_only=True
-    )
     business = BusinessBriefSerializer(read_only=True)
     business_id = serializers.PrimaryKeyRelatedField(
         queryset=Business.objects.all(),
         source="business", write_only=True, allow_null=True, required=False
     )
-    regions = RegionMiniSerializer(many=True, read_only=True)
+    regions = RegionSerializer(many=True, read_only=True)
     region_ids = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Region.objects.all(), source="regions", write_only=True, required=False
     )
-    district = DistrictMiniSerializer(many=True, read_only=True)
+    district = DistrictSerializer(many=True, read_only=True)
     district_ids = serializers.PrimaryKeyRelatedField(
         many=True, queryset=District.objects.all(), source="districts", write_only=True, required=False
     )
@@ -813,11 +833,12 @@ class VendorServiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = VendorService
         fields = (
+            "name", "description",
             "vendor_service_id", "object_type",
             "service", "service_id",
-            "provider", "provider_id", "business", "business_id",
+            "provider", "business", "business_id",
             "pricing_type", "price",
-            "is_remote",
+            "is_remote", "vendor_profile",
             "regions", "region_ids",
             "district", "district_ids",
             "town", "town_ids",
@@ -834,7 +855,7 @@ class VendorServiceSerializer(serializers.ModelSerializer):
 
     def get_vendor_profile(self, obj):
         try:
-            vp = obj.provider.vendorprofile
+            vp = get_object_or_404(VendorProfile, user=obj.provider)
         except VendorProfile.DoesNotExist:
             return None
         return VendorProfileSerializer(vp, context=self.context).data
@@ -867,39 +888,43 @@ class VendorServiceSerializer(serializers.ModelSerializer):
         tag_objs = validated_data.pop("tags", [])
         attr_objs = validated_data.pop("attributes", [])
         region_objs = validated_data.pop("regions", [])
-        district_objs = validated_data.pop("district", [])
-        town_objs = validated_data.pop("town", [])
+        district_objs = validated_data.pop("districts", [])  # <— plural!
+        town_objs = validated_data.pop("towns", [])
+
+        request = self.context.get("request")
+        if not request or not request.user or not request.user.is_authenticated:
+            raise serializers.ValidationError("Authentication credentials were not provided.")
+        validated_data["provider"] = request.user
 
         with transaction.atomic():
-            request = self.context.get("request")
-            if not request or not request.user or not request.user.is_authenticated:
-                raise serializers.ValidationError("Authentication credentials were not provided.")
-            validated_data["provider"] = request.user
-
             service = VendorService.objects.create(**validated_data)
+
             if tag_objs:
                 service.tags.set(tag_objs)
             if attr_objs:
                 service.attributes.set(attr_objs)
+
+            # now use .set() on the M2Ms
             service.regions.set(region_objs)
             service.districts.set(district_objs)
             service.towns.set(town_objs)
 
             for img in new_images:
                 VendorServiceImage.objects.create(vendor_service=service, image=img)
-        return service
 
+        return service
 
     def update(self, instance, validated_data):
         new_images = validated_data.pop("new_images", [])
         tag_objs = validated_data.pop("tags", None)
         attr_objs = validated_data.pop("attributes", None)
         region_objs = validated_data.pop("regions", None)
-        district_objs = validated_data.pop("district", None)
-        town_objs = validated_data.pop("town", None)
+        district_objs = validated_data.pop("districts", None)  # <— plural!
+        town_objs = validated_data.pop("towns", None)
 
         with transaction.atomic():
             instance = super().update(instance, validated_data)
+
             if tag_objs is not None:
                 instance.tags.set(tag_objs)
             if attr_objs is not None:
@@ -907,12 +932,13 @@ class VendorServiceSerializer(serializers.ModelSerializer):
             if region_objs is not None:
                 instance.regions.set(region_objs)
             if district_objs is not None:
-                instance.district.set(district_objs)
+                instance.districts.set(district_objs)
             if town_objs is not None:
-                instance.town.set(town_objs)
+                instance.towns.set(town_objs)
 
             for img in new_images:
                 VendorServiceImage.objects.create(vendor_service=instance, image=img)
+
         return instance
 
 
@@ -1101,9 +1127,9 @@ class VendorServiceDetailSerializer(VendorServiceSerializer):
     def get_related_services(self, obj):
         root = self._root_category(obj.category)
         qs = VendorService.objects.filter(
-            category__in=[root] + list(root.children.all()),
+            service__category__in=[root] + list(root.children.all()),
             is_active=True
-        ).exclude(pk=obj.pk).select_related("category").prefetch_related("images").order_by("?")[:8]
+        ).exclude(pk=obj.pk).select_related("service__category").prefetch_related("images").order_by("?")[:8]
         return VendorServiceSerializer(qs, many=True, context=self.context).data
 
     def get_feedback(self, obj):
@@ -1129,3 +1155,27 @@ class VendorServiceDetailSerializer(VendorServiceSerializer):
         for row in dist_qs:
             dist[str(row["rating"])] = row["count"]
         return {"average": float(avg), "distribution": dist}
+
+
+class GenericServiceDetailSerializer(GenericServiceSerializer):
+    vendor_services = VendorServiceMiniSerializer(
+        source="listings", many=True, read_only=True
+    )
+
+    class Meta(GenericServiceSerializer.Meta):
+        fields = GenericServiceSerializer.Meta.fields + (
+            "vendor_services",
+        )
+
+
+class GenericProductDetailSerializer(GenericProductSerializer):
+    vendor_products = VendorProductSerializer(
+        source="listings", many=True, read_only=True
+    )
+
+    class Meta(GenericProductSerializer.Meta):
+        fields = GenericProductSerializer.Meta.fields + (
+            "vendor_products",
+        )
+
+

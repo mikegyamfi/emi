@@ -31,10 +31,12 @@ from .models import (
 )
 from .serializers import (
     CategoryTreeSerializer,
-    TagSerializer, AttributeSerializer, SKUMiniSerializer, CategoryDetailSerializer,CategoryMiniSerializer, SKUSerializer, ConditionMiniSerializer, StatusMiniSerializer,
+    TagSerializer, AttributeSerializer, SKUMiniSerializer, CategoryDetailSerializer, CategoryMiniSerializer,
+    SKUSerializer, ConditionMiniSerializer, StatusMiniSerializer,
     ServicePricingChoiceSerializer, VendorProductSerializer, VendorServiceSerializer, VendorServiceDetailSerializer,
     VendorProductDetailSerializer, VendorServiceMiniSerializer, VendorProductImageSerializer,
-    VendorServiceImageSerializer,
+    VendorServiceImageSerializer, GenericServiceDetailSerializer, GenericServiceSerializer, GenericProductSerializer,
+    GenericProductDetailSerializer,
 )
 
 
@@ -147,13 +149,15 @@ class PublicProductViewSet(viewsets.ReadOnlyModelViewSet):
         .prefetch_related("images", "tags", "attributes")
         .order_by("-created_at")
     )
-    serializer_class = VendorProductSerializer
     permission_classes = (Everyone,)
     pagination_class = DefaultPagination
 
-    filter_backends = (DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter)
+    filter_backends = (
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    )
     filterset_class = PublicVendorProductFilter
-    # search on the underlying product text + seller/business names
     search_fields = (
         "product__name",
         "product__slug",
@@ -165,6 +169,11 @@ class PublicProductViewSet(viewsets.ReadOnlyModelViewSet):
     ordering = ("-created_at",)
 
     lookup_field = "listing_id"
+
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return VendorProductDetailSerializer
+        return VendorProductSerializer
 
 
 class PublicVendorServiceFilter(df.FilterSet):
@@ -247,6 +256,73 @@ class PublicServiceViewSet(viewsets.ReadOnlyModelViewSet):
             else VendorServiceSerializer
         )
 
+
+class GenericProductViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    GET /generic-products/ → list all catalogue products
+    GET /generic-products/{pk}/ → detail + nested vendor_products
+    GET /generic-products/{pk}/vendor-products/ → paged listings
+    """
+    queryset = GenericProduct.objects.prefetch_related("listings")
+    serializer_class = GenericProductSerializer
+    filter_backends = (DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter)
+    filterset_fields = ("category__id", "is_active", "featured")
+    search_fields = ("name", "description")
+    ordering_fields = ("name", "created_at")
+    ordering = ("-created_at",)
+
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return GenericProductDetailSerializer
+        return super().get_serializer_class()
+
+    @action(detail=True, methods=["get"], url_path="vendor-products")
+    def vendor_products(self, request, pk=None):
+        """
+        Paginated list of VendorProduct listings for this GenericProduct.
+        """
+        prod = self.get_object()
+        qs = prod.listings.filter(is_active=True)
+        qs = self.filter_queryset(qs)
+        page = self.paginate_queryset(qs)
+        ser = VendorProductSerializer(page or qs, many=True, context=self.get_serializer_context())
+        if page is not None:
+            return self.get_paginated_response(ser.data)
+        return Response(ser.data)
+
+
+class GenericServiceViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    GET /generic-services/           → list all catalogue services
+    GET /generic-services/{pk}/      → detail + nested vendor_services
+    GET /generic-services/{pk}/vendor-services/ → paged listings
+    """
+    queryset = GenericService.objects.prefetch_related("listings")
+    serializer_class = GenericServiceSerializer
+    filter_backends = (DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter)
+    filterset_fields = ("category__id", "is_active")
+    search_fields = ("title", "description")
+    ordering_fields = ("title", "created_at")
+    ordering = ("-created_at",)
+
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return GenericServiceDetailSerializer
+        return super().get_serializer_class()
+
+    @action(detail=True, methods=["get"], url_path="vendor-services")
+    def vendor_services(self, request, pk=None):
+        """
+        Paginated list of VendorService listings for this GenericService.
+        """
+        svc = self.get_object()
+        qs = svc.listings.filter(is_active=True)
+        qs = self.filter_queryset(qs)
+        page = self.paginate_queryset(qs)
+        ser = VendorServiceMiniSerializer(page or qs, many=True, context=self.get_serializer_context())
+        if page is not None:
+            return self.get_paginated_response(ser.data)
+        return Response(ser.data)
 
 # @extend_schema(tags=["Product Public Category Trees"])
 # class PublicCategoryTree(generics.GenericAPIView):
@@ -510,7 +586,7 @@ class SellerProductViewSet(viewsets.ModelViewSet):
             serializer.is_valid(raise_exception=True)
             self.perform_create(serializer)
         except serializers.ValidationError as exc:
-            return fail("Validation error", error_message=flatten_error(exc.detail))
+            return fail("Validation error", error_message=exc.detail)
         return ok("Product created successfully", serializer.data)
 
     def update(self, request, *args, **kwargs):
@@ -614,7 +690,7 @@ class SellerServiceViewSet(viewsets.ModelViewSet):
             # provider is set in serializer.create() from request.user
             self.perform_create(serializer)
         except serializers.ValidationError as exc:
-            return fail("Validation error", error_message=flatten_error(exc.detail))
+            return fail("Validation error", error_message=exc.detail)
         return ok("Service created successfully", serializer.data)
 
     # override update (PUT/PATCH)

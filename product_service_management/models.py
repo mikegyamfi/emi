@@ -304,7 +304,7 @@ class VendorService(models.Model):
         related_name="listings"
     )
     provider = models.ForeignKey(
-        'account_models.CustomUser',
+        'account.CustomUser',
         on_delete=models.CASCADE,
         related_name="service_listings"
     )
@@ -344,7 +344,7 @@ class VendorService(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.service.title} by {self.provider.username or self.provider.phone_number}"
+        return f"{self.name} by {self.provider.username or self.provider.phone_number}"
 
     @property
     def category(self):
@@ -381,7 +381,7 @@ class VendorServiceImage(models.Model):
     created = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"Image for listing {self.vendor_service.listing_id}"
+        return f"Image for listing {self.vendor_service.vendor_service_id}"
 
 
 class ServiceImage(models.Model):
@@ -489,7 +489,7 @@ class VendorProduct(models.Model):
 
 
     def __str__(self):
-        return f"{self.product.name} @ {self.price} {self.currency} by {self.seller}"
+        return f"{self.name} @ {self.price} {self.currency} by {self.seller}"
 
 
 class VendorProductImage(models.Model):

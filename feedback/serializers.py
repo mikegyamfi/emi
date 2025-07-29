@@ -14,10 +14,13 @@ class FeedbackTagSerializer(serializers.ModelSerializer):
 
 
 class FeedbackSerializer(serializers.ModelSerializer):
-    # make these optional
     model = serializers.ChoiceField(
-        choices=[('product', 'Product'), ('service', 'Service')],
-        write_only=True, required=False,
+        choices=[
+            ('vendorproduct', 'VendorProduct'),
+            ('vendorservice', 'VendorService')
+        ],
+        write_only=True,
+        required=False,
     )
     object_id = serializers.UUIDField(write_only=True, required=False)
 
@@ -42,6 +45,7 @@ class FeedbackSerializer(serializers.ModelSerializer):
 
         # if both provided, attach via ContentType
         if model and object_id:
+            print(model, object_id)
             try:
                 ct = ContentType.objects.get(
                     app_label='product_service_management', model=model
