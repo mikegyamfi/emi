@@ -1,7 +1,7 @@
 from django_filters import rest_framework as df
 
 from business.models import Business
-from .models import Product, Service
+from .models import VendorProduct, VendorService
 
 
 class AdminProductFilter(df.FilterSet):
@@ -9,7 +9,7 @@ class AdminProductFilter(df.FilterSet):
     business = df.NumberFilter(field_name="business_id")
 
     class Meta:
-        model = Product
+        model = VendorProduct
         fields = ["seller", "business", "is_active", "category"]
 
 
@@ -18,7 +18,7 @@ class AdminServiceFilter(df.FilterSet):
     business = df.NumberFilter(field_name="business_id")
 
     class Meta:
-        model = Service
+        model = VendorService
         fields = ["provider", "business", "is_active", "category"]
 
 
