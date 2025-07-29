@@ -1,8 +1,3 @@
-# product_service/serializers.py
-#
-# Compatible with models declared in product_service/models.py
-# (the snippet you sent on 26 Apr 2025).
-# -----------------------------------------------------------------
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Avg, Count
 from rest_framework import serializers, generics

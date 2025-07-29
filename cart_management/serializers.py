@@ -2,7 +2,7 @@
 from rest_framework import serializers
 from .models import Cart, CartItem
 from account.models import CustomUser
-from product_service_management.serializers import ProductSerializer  # your existing product serializer
+from product_service_management.serializers import VendorProductSerializer  # your existing product serializer
 
 
 # — lean user info for Cart —
@@ -30,7 +30,7 @@ class CartSimpleSerializer(serializers.ModelSerializer):
 # — lean item for list/create/update endpoints —
 class CartItemSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
-    product_details = ProductSerializer(source="product", read_only=True)
+    product_details = VendorProductSerializer(source="product", read_only=True)
     unit_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     subtotal = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
 
@@ -50,7 +50,7 @@ class CartItemSerializer(serializers.ModelSerializer):
 # — detail item with nested cart + product full info —
 class CartItemDetailSerializer(serializers.ModelSerializer):
     cart = CartSimpleSerializer(read_only=True)
-    product = ProductSerializer(read_only=True)
+    product = VendorProductSerializer(read_only=True)
     unit_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     subtotal = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
 

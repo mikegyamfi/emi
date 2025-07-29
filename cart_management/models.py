@@ -41,7 +41,7 @@ class Cart(models.Model):
 class CartItem(models.Model):
     cart_item_id = models.UUIDField(primary_key=True, editable=False)
     cart = models.ForeignKey(Cart, related_name="items", on_delete=models.CASCADE)
-    product = models.ForeignKey("product_service_management.Product", on_delete=models.PROTECT)
+    product = models.ForeignKey("product_service_management.VendorProduct", on_delete=models.PROTECT)
     quantity = models.PositiveIntegerField()
 
     class Meta:
@@ -49,7 +49,6 @@ class CartItem(models.Model):
 
     @property
     def unit_price(self):
-        # always fetch the current price server-side
         if self.product.discount_price:
             return self.product.discount_price
         return self.product.price
