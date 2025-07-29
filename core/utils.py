@@ -9,7 +9,7 @@ from django.utils.dateparse import parse_datetime
 
 from checkout_processing.models import DirectOrder, VendorNotification, DirectBooking
 from core.models import OTP, OTPChannel
-from product_service_management.models import Product
+from product_service_management.models import VendorProduct
 
 
 def get_config():

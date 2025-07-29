@@ -15,12 +15,11 @@ class DirectOrder(models.Model):
         related_name="direct_orders"
     )
     product = models.ForeignKey(
-        'product_service_management.Product',
+        'product_service_management.VendorProduct',
         on_delete=models.PROTECT,
         related_name="direct_orders"
     )
     quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
-    # shipping info
     full_name = models.CharField(max_length=255)
     email = models.EmailField(null=True, blank=True)
     phone = models.CharField(max_length=20)
@@ -105,7 +104,7 @@ class DirectBooking(models.Model):
         related_name="direct_bookings"
     )
     service = models.ForeignKey(
-        'product_service_management.Service',
+        'product_service_management.VendorService',
         on_delete=models.PROTECT,
         related_name="direct_bookings"
     )

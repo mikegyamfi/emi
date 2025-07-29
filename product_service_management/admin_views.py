@@ -13,7 +13,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 
 from business.models import Business
 from business.serializers import BusinessBriefSerializer
-from .models import Product, Service
+from .models import GenericProduct, GenericService, VendorProduct, VendorService
 from .admin_serializers import (
     _AdminToggleMixin, SellerOverviewSerializer
 )
@@ -37,7 +37,7 @@ class AdminProductViewSet(viewsets.ReadOnlyModelViewSet):
       and e-mails the seller.
     """
     queryset = (
-        Product.objects
+        VendorProduct.objects
         .select_related("seller", "business", "category")
         .prefetch_related("images", "tags")
     )
@@ -45,7 +45,7 @@ class AdminProductViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = (IsAdminUser,)
     filter_backends = (DjangoFilterBackend, filters.SearchFilter)
     filterset_class = AdminProductFilter
-    search_fields = ("name", "slug", "description")
+    search_fields = ("name", "description")
 
     # -------------------- actions -------------------------------
     def _mail_toggle(self, product):
@@ -70,7 +70,7 @@ class AdminProductViewSet(viewsets.ReadOnlyModelViewSet):
                   fail_silently=True)
 
     def _toggle(self, request, pk, activate: bool):
-        prod = get_object_or_404(Product, pk=pk)
+        prod = get_object_or_404(VendorProduct, pk=pk)
         was = prod.is_active
         prod.is_active = activate
         prod.save(update_fields=("is_active",))
@@ -95,7 +95,7 @@ class AdminProductViewSet(viewsets.ReadOnlyModelViewSet):
 # ──────────────────────────────────────────────────────────
 class AdminServiceViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = (
-        Service.objects
+        VendorService.objects
         .select_related("provider", "business", "category")
         .prefetch_related("tags", "attributes")
     )
@@ -124,7 +124,7 @@ class AdminServiceViewSet(viewsets.ReadOnlyModelViewSet):
                   fail_silently=True)
 
     def _toggle(self, request, pk, activate: bool):
-        srv = get_object_or_404(Service, pk=pk)
+        srv = get_object_or_404(VendorService, pk=pk)
         was = srv.is_active
         srv.is_active = activate
         srv.save(update_fields=("is_active",))
@@ -155,8 +155,8 @@ class AdminBusinessViewSet(viewsets.ReadOnlyModelViewSet):
         Business.objects
         .select_related("owner")
         .prefetch_related(
-            Prefetch("products", queryset=Product.objects.only("id")),
-            Prefetch("services", queryset=Service.objects.only("id")),
+            Prefetch("products", queryset=VendorProduct.objects.only("id")),
+            Prefetch("services", queryset=VendorService.objects.only("id")),
         )
     )
     serializer_class = BusinessBriefSerializer

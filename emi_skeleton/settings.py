@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from decouple import config
 from datetime import timedelta
@@ -12,7 +13,6 @@ SECRET_KEY = config("DJANGO_SECRET_KEY")
 DEBUG = config("DEBUG", cast=bool, default=False)
 
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1").split(",")
-
 
 INSTALLED_APPS = [
     'jazzmin',
@@ -128,12 +128,28 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'emi_skeleton.wsgi.application'
 
+# DATABASES = {
+#         'default': {
+#             'ENGINE': 'django.db.backends.sqlite3',
+#             'NAME': BASE_DIR / 'db.sqlite3',
+#         }
+#     }
+
+
 DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'HOST': 'dbaas-db-6131573-do-user-22177047-0.f.db.ondigitalocean.com',
+        'PORT': '25060',
+        'NAME': 'defaultdb',
+        'USER': 'doadmin',
+        'PASSWORD': 'AVNS_FKFjFHmIe95Hp8h4IMB',
+        'OPTIONS': {
+            'sslmode': 'require',
+            'sslrootcert': os.path.expanduser('~/certs/do‑ca‑bundle.crt'),
+        },
     }
+}
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
@@ -186,8 +202,6 @@ if not DEBUG:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
 
-
-
 # -------------------------
 # AWS S3 Settings (For production)
 # -------------------------
@@ -211,30 +225,3 @@ if not DEBUG:
 # Media files settings
 # DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
 # MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/media/'
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

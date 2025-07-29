@@ -6,7 +6,7 @@ from rest_framework.routers import DefaultRouter
 from .admin_views import AdminProductViewSet, AdminServiceViewSet, AdminBusinessViewSet, AdminSellerOverview
 from .views import (
     PublicProductViewSet, PublicServiceViewSet,
-    RandomProducts, RandomServices, GlobalSearch,
+    RandomProducts, GlobalSearch,
     SellerProductViewSet, SellerServiceViewSet,
     TagViewSet, AttributeViewSet, SKUViewSet, ProductImageViewSet, ProductSearchView,
     ServiceSearchView, BusinessSearchView, SellerSearchView, ServiceImageViewSet, VendorSKUViewSet,
@@ -82,7 +82,6 @@ urlpatterns = [
     ),
 
     path("products_mgt/random/", RandomProducts.as_view(), name="random-products"),
-    path("services_mgt/random/", RandomServices.as_view(), name="random-services"),
 
     path("my/services/<uuid:pk>/activate/", SellerServiceViewSet.as_view({"post": "activate"})),
     path("my/services/<uuid:pk>/deactivate/", SellerServiceViewSet.as_view({"post": "deactivate"})),

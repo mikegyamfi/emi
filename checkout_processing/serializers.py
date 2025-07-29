@@ -2,9 +2,9 @@
 from rest_framework import serializers
 from django.core.exceptions import ValidationError
 from market_intelligence.models import Region, District, Town  # ← new imports
-from product_service_management.serializers import ProductSerializer, ServiceSerializer
+from product_service_management.serializers import VendorProductSerializer, VendorServiceSerializer
 from .models import DirectOrder, DirectBooking
-from product_service_management.models import Product, Service
+from product_service_management.models import VendorProduct, VendorService
 from cart_management.serializers import CartUserSerializer
 from core.utils import send_vendor_order_sms, send_vendor_booking_sms
 
@@ -36,8 +36,8 @@ class DirectOrderCreateSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         try:
-            prod = Product.objects.get(product_id=attrs["product_id"])
-        except Product.DoesNotExist:
+            prod = VendorProduct.objects.get(listing_id=attrs["product_id"])
+        except VendorProduct.DoesNotExist:
             raise serializers.ValidationError({"product_id": "Invalid product."})
         if attrs["quantity"] > prod.quantity:
             raise serializers.ValidationError({"quantity": "Insufficient stock."})
@@ -80,7 +80,7 @@ class DirectOrderCreateSerializer(serializers.Serializer):
 
 class DirectOrderSerializer(serializers.ModelSerializer):
     buyer = CartUserSerializer(read_only=True)
-    product = ProductSerializer(read_only=True)
+    product = VendorProductSerializer(read_only=True)
     status = serializers.CharField(read_only=True)
     total = serializers.DecimalField(
         max_digits=12,
@@ -135,14 +135,14 @@ class DirectBookingCreateSerializer(serializers.Serializer):
 
     def validate_service_id(self, value):
         try:
-            service = Service.objects.get(service_id=value, is_active=True)
-        except Service.DoesNotExist:
+            service = VendorService.objects.get(vendor_service_id=value, is_active=True)
+        except VendorService.DoesNotExist:
             raise serializers.ValidationError("Invalid or inactive service.")
         return value
 
     def validate(self, attrs):
         # attach the Service instance for create()
-        attrs['service_obj'] = Service.objects.get(service_id=attrs['service_id'])
+        attrs['service_obj'] = VendorService.objects.get(vendor_service_id=attrs['service_id'])
         return attrs
 
     def create(self, validated_data):
@@ -168,7 +168,7 @@ class DirectBookingCreateSerializer(serializers.Serializer):
 class DirectBookingSerializer(serializers.ModelSerializer):
     booking_id = serializers.UUIDField(read_only=True)
     buyer = CartUserSerializer(read_only=True)
-    service = ServiceSerializer(read_only=True)
+    service = VendorServiceSerializer(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
     status = serializers.CharField(read_only=True)
 

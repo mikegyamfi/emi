@@ -17,7 +17,7 @@ class FeedbackTag(models.Model):
 class Feedback(models.Model):
     content_type = models.ForeignKey(
         ContentType,
-        limit_choices_to=models.Q(app_label='product_service_management', model__in=('product', 'service')),
+        limit_choices_to=models.Q(app_label='product_service_management', model__in=('vendorproduct', 'vendorservice')),
         on_delete=models.CASCADE, null=True, blank=True
     )
     object_id = models.UUIDField(null=True, blank=True)

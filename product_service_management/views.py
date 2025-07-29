@@ -25,15 +25,16 @@ from business.models import Business  # for ?business filter
 from core.utils import flatten_error
 
 from .models import (
-    Product, Service, Category, Tag, Attributes,
-    ProductImage, ProductServiceStatus, ProductCondition, SKU, ServiceImage, ServicePricingChoices
+    Category, Tag, Attributes,
+    ProductImage, ProductServiceStatus, ProductCondition, SKU, ServiceImage, ServicePricingChoices, GenericProduct,
+    VendorProduct, GenericService, VendorService, VendorServiceImage, VendorProductImage
 )
 from .serializers import (
-    ProductSerializer, ServiceSerializer, CategoryTreeSerializer,
-    TagSerializer, AttributeSerializer, SKUMiniSerializer, CategoryDetailSerializer, ProductDetailSerializer,
-    ProductMiniSerializer, ServiceMiniSerializer, ServiceDetailSerializer, ProductImageSerializer,
-    ServiceImageSerializer, CategoryMiniSerializer, SKUSerializer, ConditionMiniSerializer, StatusMiniSerializer,
-    ServicePricingChoiceSerializer,
+    CategoryTreeSerializer,
+    TagSerializer, AttributeSerializer, SKUMiniSerializer, CategoryDetailSerializer,CategoryMiniSerializer, SKUSerializer, ConditionMiniSerializer, StatusMiniSerializer,
+    ServicePricingChoiceSerializer, VendorProductSerializer, VendorServiceSerializer, VendorServiceDetailSerializer,
+    VendorProductDetailSerializer, VendorServiceMiniSerializer, VendorProductImageSerializer,
+    VendorServiceImageSerializer,
 )
 
 
@@ -50,56 +51,83 @@ class DefaultPagination(pagination.PageNumberPagination):
     max_page_size = 120
 
 
-# quick reusable filters
-class _ProductFilter(df.FilterSet):
+class GenericProductFilter(df.FilterSet):
+    is_active = df.BooleanFilter()
+    category = df.NumberFilter(field_name="category_id")
+
+    class Meta:
+        model = GenericProduct
+        fields = []
+
+
+class VendorProductFilter(df.FilterSet):
     is_active = df.BooleanFilter()
     featured = df.BooleanFilter()
-    category = df.NumberFilter(field_name="category_id")
+    product = df.CharFilter(field_name="product__product_id")
     tags = df.ModelMultipleChoiceFilter(
-        field_name="tags__id", to_field_name="id", queryset=Tag.objects.all(),
-        conjoined=False)
+        field_name="tags__id", to_field_name="id", queryset=Tag.objects.all(), conjoined=False
+    )
     attributes = df.ModelMultipleChoiceFilter(
-        field_name="attributes__id", to_field_name="id",
-        queryset=Attributes.objects.all(), conjoined=False)
+        field_name="attributes__id", to_field_name="id", queryset=Attributes.objects.all(), conjoined=False
+    )
     business = df.NumberFilter(field_name="business_id")
     seller = df.NumberFilter(field_name="seller_id")
 
     class Meta:
-        model = Product
-        fields = []  # ↑ all declared manually
+        model = VendorProduct
+        fields = []
 
 
-class _ServiceFilter(_ProductFilter):
+class GenericServiceFilter(df.FilterSet):
+    is_active = df.BooleanFilter()
+    category = df.NumberFilter(field_name="category_id")
+
+    class Meta:
+        model = GenericService
+        fields = []
+
+
+class VendorServiceFilter(df.FilterSet):
     """
-    Extends the generic product filter with every lookup that makes sense
-    for a Service:
-
-    • category           – id
-    • is_active          – bool
-    • is_remote          – bool
-    • pricing_type       – id
-    • regions            – id  (many-to-many)
-    • district           – id  (many-to-many)
-    • town               – id  (many-to-many)
-    • tag                – id  (many-to-many)
-    • attribute          – id  (many-to-many)
+    Service listing filters (on VendorService):
+    • service__category – id
+    • is_active / featured – bool
+    • pricing_type – id
+    • regions / districts / towns– id (M2M)
+    • business / provider – id
     """
-
+    is_active = df.BooleanFilter()
+    featured = df.BooleanFilter()
+    service_category = df.NumberFilter(field_name="service__category_id")
     pricing_type = df.NumberFilter(field_name="pricing_type__id")
     regions = df.NumberFilter(field_name="regions__id")
-    district = df.NumberFilter(field_name="district__id")
-    town = df.NumberFilter(field_name="town__id")
+    districts = df.NumberFilter(field_name="districts__id")
+    towns = df.NumberFilter(field_name="towns__id")
+    business = df.NumberFilter(field_name="business_id")
+    provider = df.NumberFilter(field_name="provider_id")
 
-    # The product filter already carried `category`, `tag`, `attribute`,
-    # `is_active` …
+    class Meta:
+        model = VendorService
+        fields = []
 
-    class Meta(_ProductFilter.Meta):
-        model = Service
-        # merge parent fields + the four above
-        fields = _ProductFilter.Meta.fields + [
-            "pricing_type",
-            "regions", "district", "town",
-        ]
+
+class PublicVendorProductFilter(df.FilterSet):
+    """
+    Filters for public vendor listings.
+    """
+    is_active = df.BooleanFilter()
+    featured = df.BooleanFilter()
+    # filter by the underlying catalogue category
+    product_category = df.NumberFilter(field_name="product__category_id")
+    # common public facets
+    seller = df.NumberFilter(field_name="seller_id")
+    business = df.NumberFilter(field_name="business_id")
+    tag = df.NumberFilter(field_name="tags__id")
+    attribute = df.NumberFilter(field_name="attributes__id")
+
+    class Meta:
+        model = VendorProduct
+        fields = []
 
 
 # ────────────────────────────────────────────────────────────
@@ -108,57 +136,116 @@ class _ServiceFilter(_ProductFilter):
 @extend_schema(tags=["Public Products"])
 class PublicProductViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    Anyone can list / retrieve products
+    Public listing of **VendorProduct** (each vendor's offer for a GenericProduct).
+    Users see real, purchasable listings with vendor price/quantity,
+    not the raw catalogue.
     """
     queryset = (
-        Product.objects
-        .select_related(
-            "category",
-            "seller", "seller__vendorprofile",
-            "business",
-        )
-        .prefetch_related(
-            "tags", "attributes", "images",
-        )
+        VendorProduct.objects
+        .filter(is_active=True)
+        .select_related("product", "seller", "business")
+        .prefetch_related("images", "tags", "attributes")
+        .order_by("-created_at")
     )
-    serializer_class = ProductSerializer  # default for “list”
+    serializer_class = VendorProductSerializer
     permission_classes = (Everyone,)
     pagination_class = DefaultPagination
-    filter_backends = (DjangoFilterBackend, filters.SearchFilter)
-    filterset_class = _ProductFilter
-    search_fields = ("name", "slug", "description")
 
-    # -----------------------------------------------------------
-    # automatically switch to the detail serializer
-    # -----------------------------------------------------------
-    def get_serializer_class(self):
-        if self.action == "retrieve":
-            return ProductDetailSerializer
-        return super().get_serializer_class()
+    filter_backends = (DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter)
+    filterset_class = PublicVendorProductFilter
+    # search on the underlying product text + seller/business names
+    search_fields = (
+        "product__name",
+        "product__slug",
+        "product__description",
+        "seller__vendorprofile__display_name",
+        "business__business_name",
+    )
+    ordering_fields = ("price", "created_at", "featured")
+    ordering = ("-created_at",)
+
+    lookup_field = "listing_id"
+
+
+class PublicVendorServiceFilter(df.FilterSet):
+    """
+    Filters for public vendor service listings.
+    """
+    # basics
+    is_active = df.BooleanFilter()
+    featured = df.BooleanFilter()
+    is_remote = df.BooleanFilter()
+
+    # pricing
+    pricing_type = df.NumberFilter(field_name="pricing_type_id")
+    min_price = df.NumberFilter(field_name="price", lookup_expr="gte")
+    max_price = df.NumberFilter(field_name="price", lookup_expr="lte")
+
+    # underlying catalogue category (GenericService.category)
+    service_category = df.NumberFilter(field_name="service__category_id")
+
+    # ownership
+    provider = df.NumberFilter(field_name="provider_id")
+    business = df.NumberFilter(field_name="business_id")
+
+    # coverage (M2M)
+    region = df.NumberFilter(field_name="regions__id")
+    district = df.NumberFilter(field_name="districts__id")
+    town = df.NumberFilter(field_name="towns__id")
+
+    # facets
+    tag = df.NumberFilter(field_name="tags__id")
+    attribute = df.NumberFilter(field_name="attributes__id")
+
+    class Meta:
+        model = VendorService
+        fields = []  # declared explicitly above
 
 
 @extend_schema(tags=["Public Services"])
 class PublicServiceViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    • list:   /services/        → ServiceSerializer
-    • retrieve: /services/{pk}/ → ServiceDetailSerializer
+    Public listing of **VendorService** (each provider's offer for a GenericService).
+    Users see real, bookable service listings with provider pricing and coverage,
+    not the raw service catalogue.
     """
-    queryset = Service.objects.prefetch_related(
-        "tags", "attributes", "images", "category"
+    queryset = (
+        VendorService.objects
+        .filter(is_active=True)
+        .select_related(
+            "service", "service__category",
+            "provider", "business", "pricing_type",
+        )
+        .prefetch_related(
+            "regions", "districts", "towns",
+            "tags", "attributes", "images",
+        )
+        .order_by("-created_at")
     )
+
+    serializer_class = VendorServiceSerializer  # default for list
     permission_classes = (Everyone,)
     pagination_class = DefaultPagination
-    filter_backends = (DjangoFilterBackend, filters.SearchFilter)
-    filterset_class = _ServiceFilter
-    search_fields = ("title", "description",)
 
-    # default serializer for list
-    serializer_class = ServiceSerializer
+    filter_backends = (DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter)
+    filterset_class = PublicVendorServiceFilter
+    # search across vendor overlay + underlying generic content + owner names
+    search_fields = (
+        "name", "description",  # VendorService overlay fields
+        "service__title", "service__description",  # GenericService copy
+        "provider__vendorprofile__display_name",
+        "business__business_name",
+    )
+    ordering_fields = ("price", "created_at", "featured")
+    ordering = ("-created_at",)
+    lookup_field = "vendor_service_id"  # UUID
 
     def get_serializer_class(self):
-        if self.action == 'retrieve':
-            return ServiceDetailSerializer
-        return super().get_serializer_class()
+        return (
+            VendorServiceDetailSerializer
+            if self.action == "retrieve"
+            else VendorServiceSerializer
+        )
 
 
 # @extend_schema(tags=["Product Public Category Trees"])
@@ -272,15 +359,12 @@ class _RandomMixin:
     """
 
     def _rand_queryset(self, model, n: int):
-        pk_name = model._meta.pk.name  # ← smart ✔
+        pk_name = model._meta.pk.name
         ids = list(
             model.objects.filter(is_active=True)
             .values_list(pk_name, flat=True)
         )
-
-        # if we have <= n rows, just return them all
         chosen = ids if len(ids) <= n else sample(ids, n)
-
         return model.objects.filter(**{f"{pk_name}__in": chosen})
 
 
@@ -291,47 +375,37 @@ class _RandomMixin:
 class RandomProducts(_RandomMixin, generics.ListAPIView):
     """
     /products/random/?n=12   (default **8**)
+    Returns random **vendor product listings** (VendorProduct).
     """
-    serializer_class = ProductSerializer
+    serializer_class = VendorProductSerializer
     permission_classes = (Everyone,)
 
     def get_queryset(self):
         n = int(self.request.query_params.get("n", 8))
-        return self._rand_queryset(Product, n)
+        return (
+            self._rand_queryset(VendorProduct, n)
+            .select_related("product", "seller", "business")
+            .prefetch_related("images")
+        )
 
 
-@extend_schema(tags=["Random Services"])
-class RandomServices(_RandomMixin, generics.ListAPIView):
-    """
-    /services/random/?n=12   (default **8**)
-    """
-    serializer_class = ServiceSerializer
-    permission_classes = (Everyone,)
-
-    def get_queryset(self):
-        n = int(self.request.query_params.get("n", 8))
-        return self._rand_queryset(Service, n)
-
-
-# full-text   products + services + business + seller ----------
 @extend_schema(tags=["Product Glocal Search"])
 class GlobalSearch(generics.ListAPIView):
     """
     /search/?q=rice&category=3&is_active=true …
 
-    Searches:
-        • Product.name / .description
-        • Service.name / .description
-        • Business.name
+    Searches vendor **listings**:
+        • VendorProduct.product.name / .product.description
+        • VendorService.service.title / VendorService.description
+        • Business.business_name
         • Seller (VendorProfile.display_name)
 
-    Result schema:
-    ```json
+    Response
+    --------
     {
-      "products":  [... ProductSerializer ...],
-      "services":  [... ServiceSerializer ...]
+      "products": [... VendorProductSerializer ...],
+      "services": [... VendorServiceSerializer ...]
     }
-    ```
     """
     permission_classes = (Everyone,)
     pagination_class = None  # single JSON blob
@@ -339,29 +413,44 @@ class GlobalSearch(generics.ListAPIView):
     def get(self, request):
         q = request.query_params.get("q", "").strip()
         cat = request.query_params.get("category")
-        base_prod = Product.objects.filter(is_active=True)
-        base_srv = Service.objects.filter(is_active=True)
+
+        vp = VendorProduct.objects.filter(is_active=True)
+        vs = VendorService.objects.filter(is_active=True)
 
         if q:
-            base_prod = base_prod.filter(
-                Q(name__icontains=q) | Q(description__icontains=q) |
+            vp = vp.filter(
+                Q(name__icontains=q) |
+                Q(description__icontains=q) |
                 Q(seller__vendorprofile__display_name__icontains=q) |
                 Q(business__business_name__icontains=q)
             )
-            base_srv = base_srv.filter(
-                Q(title__icontains=q) | Q(description__icontains=q) |
+            vs = vs.filter(
+                Q(title__icontains=q) |
+                Q(description__icontains=q) |
                 Q(provider__vendorprofile__display_name__icontains=q) |
                 Q(business__business_name__icontains=q)
             )
-        if cat:
-            base_prod = base_prod.filter(category_id=cat)
-            base_srv = base_srv.filter(category_id=cat)
 
+        if cat:
+            try:
+                cat_id = int(cat)
+                vp = vp.filter(product__category_id=cat_id)
+                vs = vs.filter(service__category_id=cat_id)
+            except ValueError:
+                pass
+
+        ctx = self.get_serializer_context()
         return ok("search results", {
-            "products": ProductSerializer(base_prod[:30], many=True,
-                                          context=self.get_serializer_context()).data,
-            "services": ServiceSerializer(base_srv[:30], many=True,
-                                          context=self.get_serializer_context()).data,
+            "products": VendorProductSerializer(
+                vp.select_related("product", "seller", "business")
+                  .prefetch_related("images")[:30],
+                many=True, context=ctx
+            ).data,
+            "services": VendorServiceSerializer(
+                vs.select_related("service", "provider", "business")
+                  .prefetch_related("images")[:30],
+                many=True, context=ctx
+            ).data,
         })
 
 
@@ -383,26 +472,28 @@ class _OwnerOnly:
 @extend_schema(tags=["Seller Products"])
 class SellerProductViewSet(viewsets.ModelViewSet):
     """
-    /my_products_management/ … full vendor CRUD.
+    /my_products_management/ … full vendor CRUD on **VendorProduct**.
     Supports multiple image uploads via `new_images`.
     """
     permission_classes = (IsVendor,)
     parser_classes = (MultiPartParser, FormParser)
     pagination_class = DefaultPagination
     queryset = (
-        Product.objects
-        .select_related("category", "business")
+        VendorProduct.objects
+        .select_related("product", "business")
         .prefetch_related("images", "tags", "attributes")
     )
-    filter_backends = (DjangoFilterBackend, filters.SearchFilter)
-    filterset_class = _ProductFilter
-    search_fields = ("name", "slug", "description")
-    lookup_field = 'product_id'
+    filter_backends = (DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter)
+    filterset_class = VendorProductFilter
+    search_fields = ("product__name", "product__slug", "product__description")
+    ordering_fields = ("price", "created_at")
+    ordering = ("-created_at",)
+    lookup_field = "listing_id"
 
     def get_serializer_class(self):
         if self.action == "retrieve":
-            return ProductDetailSerializer
-        return ProductSerializer
+            return VendorProductDetailSerializer
+        return VendorProductSerializer
 
     def get_queryset(self):
         return super().get_queryset().filter(seller=self.request.user)
@@ -440,26 +531,24 @@ class SellerProductViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def activate(self, request, pk=None):
-        prod = self.get_object()
-        prod.is_active = True
-        prod.save(update_fields=["is_active"])
-        data = ProductMiniSerializer(prod, context={"request": request}).data
+        vp = self.get_object()
+        vp.is_active = True
+        vp.save(update_fields=["is_active"])
+        data = VendorProductSerializer(vp, context={"request": request}).data
         return ok("Product activated", data)
 
     @action(detail=True, methods=["post"])
     def deactivate(self, request, pk=None):
-        prod = self.get_object()
-        prod.is_active = False
-        prod.save(update_fields=["is_active"])
-        data = ProductMiniSerializer(prod, context={"request": request}).data
+        vp = self.get_object()
+        vp.is_active = False
+        vp.save(update_fields=["is_active"])
+        data = VendorProductSerializer(vp, context={"request": request}).data
         return ok("Product deactivated", data)
 
     @action(detail=False, url_path=r'by-business/(?P<business_pk>\d+)', methods=["get"])
     def by_business(self, request, business_pk=None):
         vendor = VendorProfile.objects.get(user=request.user)
-        biz = get_object_or_404(
-            Business.objects.filter(vendor=vendor),
-            pk=business_pk
+        biz = get_object_or_404(Business.objects.filter(vendor=vendor, pk=business_pk)
         )
         qs = self.filter_queryset(self.get_queryset().filter(business=biz))
         page = self.paginate_queryset(qs)
@@ -472,37 +561,32 @@ class SellerProductViewSet(viewsets.ModelViewSet):
 @extend_schema(tags=["Product Seller Services"])
 class SellerServiceViewSet(viewsets.ModelViewSet):
     """
-    * default list / create / update / destroy use **ServiceSerializer**
-    * retrieve       → **ServiceDetailSerializer**
+    Vendor CRUD on **VendorService** listings.
 
-    Filters & search are identical to the public view:
-        `_ServiceFilter`  +  ?search=<text>
+    Filters & search use `VendorServiceFilter`  +  ?search=<text>
     """
     permission_classes = (IsVendor,)
     pagination_class = DefaultPagination
-    filter_backends = (DjangoFilterBackend, filters.SearchFilter)
-    filterset_class = _ServiceFilter
-    search_fields = ("title", "description")
-    lookup_field = 'service_id'
+    filter_backends = (DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter)
+    filterset_class = VendorServiceFilter
+    search_fields = ("service__title", "description")
+    ordering_fields = ("price", "created_at")
+    ordering = ("-created_at",)
+    lookup_field = "vendor_service_id"
 
-    serializer_class = ServiceSerializer
+    serializer_class = VendorServiceSerializer
 
     queryset = (
-        Service.objects
-        .select_related("category", "business")
-        .prefetch_related("images", "tags", "attributes",
-                          "regions", "district", "town")
+        VendorService.objects
+        .select_related("service", "business")
+        .prefetch_related("images", "tags", "attributes", "regions", "districts", "towns")
     )
 
-    # choose serializer
     def get_serializer_class(self):
-        # on GET /services/<pk>/ use the “rich” Detail serializer
         if self.action == 'retrieve':
-            print("was a retrieve")
-            return ServiceDetailSerializer
+            return VendorServiceDetailSerializer
         return super().get_serializer_class()
 
-    # scope to this vendor
     def get_queryset(self):
         return super().get_queryset().filter(provider=self.request.user)
 
@@ -512,11 +596,8 @@ class SellerServiceViewSet(viewsets.ModelViewSet):
         page = self.paginate_queryset(qs)
         ser = self.get_serializer(page or qs, many=True)
         data = ser.data
-
         if page is not None:
-            # keep DRF’s pagination envelope
             return self.get_paginated_response(data)
-
         return ok(data=data)
 
     # override retrieve
@@ -530,6 +611,7 @@ class SellerServiceViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data, context={"request": request})
         try:
             serializer.is_valid(raise_exception=True)
+            # provider is set in serializer.create() from request.user
             self.perform_create(serializer)
         except serializers.ValidationError as exc:
             return fail("Validation error", error_message=flatten_error(exc.detail))
@@ -550,22 +632,20 @@ class SellerServiceViewSet(viewsets.ModelViewSet):
         self.perform_destroy(inst)
         return ok("Service deleted successfully.")
 
-    # custom activate/deactivate already use ok()
     @action(detail=True, methods=["post"])
     def activate(self, request, pk=None):
         srv = self.get_object()
         srv.is_active = True
         srv.save(update_fields=["is_active"])
-        return ok("Service activated", ServiceMiniSerializer(srv, context={"request": request}).data)
+        return ok("Service activated", VendorServiceMiniSerializer(srv, context={"request": request}).data)
 
     @action(detail=True, methods=["post"])
     def deactivate(self, request, pk=None):
         srv = self.get_object()
         srv.is_active = False
         srv.save(update_fields=["is_active"])
-        return ok("Service deactivated", ServiceMiniSerializer(srv, context={"request": request}).data)
+        return ok("Service deactivated", VendorServiceMiniSerializer(srv, context={"request": request}).data)
 
-    # list by-business
     @action(detail=False, url_path=r'by-business/(?P<business_pk>\d+)', methods=["get"])
     def by_business(self, request, business_pk=None):
         vendor = VendorProfile.objects.get(user=request.user)
@@ -577,10 +657,8 @@ class SellerServiceViewSet(viewsets.ModelViewSet):
         page = self.paginate_queryset(qs)
         ser = self.get_serializer(page or qs, many=True)
         data = ser.data
-
         if page is not None:
             return self.get_paginated_response(data)
-
         return ok(data=data)
 
 
@@ -631,13 +709,13 @@ class SKUViewSet(viewsets.ReadOnlyModelViewSet):
         if not cat_ids:
             return SKU.objects.none()
 
-        # reverse accessor is “category”
         return (
             SKU.objects
             .filter(category__id__in=cat_ids)
             .distinct()
             .order_by("id")
         )
+
 
 
 @extend_schema(tags=["Product SKU Search"])
@@ -649,7 +727,7 @@ class SKUSearchView(generics.ListAPIView):
     """
     serializer_class = SKUMiniSerializer
     permission_classes = (Everyone,)
-    pagination_class = None  # single flat list
+    pagination_class = None
     filter_backends = (filters.SearchFilter,)
     search_fields = ("name", "description")
 
@@ -666,31 +744,24 @@ class SKUSearchView(generics.ListAPIView):
 @extend_schema(tags=["Category SKUs"])
 class CategorySKUList(generics.ListAPIView):
     """
-    /sku/by-category/<cat_id>/
+    /sku/by-category/<pk>/
     """
     serializer_class = SKUMiniSerializer
     permission_classes = (Everyone,)
     pagination_class = None
-    search_fields = ("name", "description")
 
     def get_queryset(self):
         cat_id = self.kwargs["pk"]
-        return (
-            Category.objects
-            .get(pk=cat_id)
-            .available_sku  # M2M manager
-            .all()
-            .order_by("name")
-        )
+        return Category.objects.get(pk=cat_id).available_sku.all().order_by("name")
 
 
 @extend_schema(tags=["Vendor SKUs"])
 class VendorSKUViewSet(viewsets.ModelViewSet):
     """
-    /my/sku/           → list + create
-    /my/sku/{pk}/      → retrieve / update / delete (own SKUs only)
+    /my/sku/ → list + create
+    /my/sku/{pk}/ → retrieve / update / delete (own SKUs only)
 
-    • list  = GLOBAL SKUs (creator=NULL) **plus** user's own
+    • list = GLOBAL SKUs (creator=NULL) **plus** user's own
     • create= new SKU with creator = request.user
     """
     serializer_class = SKUSerializer
@@ -698,108 +769,87 @@ class VendorSKUViewSet(viewsets.ModelViewSet):
     filter_backends = (filters.SearchFilter,)
     search_fields = ("name", "description")
 
-    # ---------- queryset helper -------------------
     def get_queryset(self):
         usr = self.request.user
-        return (
-            SKU.objects
-            .filter(Q(creator__isnull=True) | Q(creator=usr))
-            .order_by("name")
-        )
+        return SKU.objects.filter(Q(creator__isnull=True) | Q(creator=usr)).order_by("name")
 
-    # ---------- create override -------------------
     def perform_create(self, serializer):
         serializer.save(creator=self.request.user)
 
 
-class IsProductOwnerOrReadOnly(permissions.BasePermission):
-    """
-    • SAFE methods (GET / HEAD / OPTIONS) → always allowed
-    • WRITE methods → allowed if request.user is
-        – the seller who owns the related product, or
-        – an authenticated staff / super-user
-    """
-
-    def has_object_permission(self, request, view, obj: ProductImage):
+# ────────────────────────────────────────────────────────────
+# 4.  Images (Vendor listings)
+# ────────────────────────────────────────────────────────────
+class IsVendorProductImageOwnerOrReadOnly(permissions.BasePermission):
+    def has_object_permission(self, request, view, obj: VendorProductImage):
         if request.method in permissions.SAFE_METHODS:
             return True
-
         user = request.user
-        if not user.is_authenticated:  # must be logged-in
+        if not user.is_authenticated:
             return False
-
-        if user.is_staff or user.is_superuser:  # admins
+        if user.is_staff or user.is_superuser:
             return True
-
-        return obj.product.seller_id == user.id  # owner check
+        return obj.vendor_product.seller_id == user.id
 
 
 @extend_schema(tags=["Product Images"])
 class ProductImageViewSet(viewsets.ModelViewSet):
     """
-    /product-images/
+    /product-images/  (for **VendorProductImage**)
     ───────────────────────────────────────────────
-    list    GET     ?product=<id>&is_primary=true
-    create  POST    { product, image, is_primary }
+    list    GET     ?vendor_product=<listing_id>&is_primary=true
+    create  POST    { vendor_product, image, is_primary }
     detail  GET     /{pk}/
     patch   PATCH   /{pk}/ { is_primary }
     delete  DELETE  /{pk}/
     """
     queryset = (
-        ProductImage.objects
-        .select_related("product", "product__seller")
+        VendorProductImage.objects
+        .select_related("vendor_product", "vendor_product__seller")
         .order_by("-is_primary", "-created")
     )
-    serializer_class = ProductImageSerializer
-    permission_classes = (IsProductOwnerOrReadOnly,)
-    parser_classes = (MultiPartParser, FormParser)  # ← accept files
+    serializer_class = VendorProductImageSerializer
+    permission_classes = (IsVendorProductImageOwnerOrReadOnly,)
+    parser_classes = (MultiPartParser, FormParser)
     filter_backends = (DjangoFilterBackend, filters.OrderingFilter)
-    filterset_fields = ("product", "is_primary")
+    filterset_fields = ("vendor_product", "is_primary")
     ordering_fields = ("created", "is_primary")
     ordering = ("-is_primary", "-created")
 
 
-class IsServiceOwnerOrReadOnly(permissions.BasePermission):
-    """
-    • SAFE methods → always allowed.
-    • WRITE methods → only the service's provider **or** staff.
-    """
-
-    def has_object_permission(self, request, view, obj: ServiceImage):
+class IsVendorServiceImageOwnerOrReadOnly(permissions.BasePermission):
+    def has_object_permission(self, request, view, obj: VendorServiceImage):
         if request.method in permissions.SAFE_METHODS:
             return True
-
         user = request.user
         if not user.is_authenticated:
             return False
-
         if user.is_staff or user.is_superuser:
             return True
-
-        return obj.service.provider_id == user.id
+        return obj.vendor_service.provider_id == user.id
 
 
 @extend_schema(tags=["Product Service Images"])
 class ServiceImageViewSet(viewsets.ModelViewSet):
     """
-    /service-images/
+    /service-images/  (for **VendorServiceImage**)
     ─────────────────────────────────────────────────────
-    list    GET     ?service=<id>&is_primary=true
-    create  POST    { service, image, is_primary }
+    list    GET     ?vendor_service=<vendor_service_id>&is_primary=true
+    create  POST    { vendor_service, image, is_primary }
     detail  GET     /{pk}/
     patch   PATCH   /{pk}/ { is_primary }
     delete  DELETE  /{pk}/
     """
     queryset = (
-        ServiceImage.objects
-        .select_related("service", "service__provider")
+        VendorServiceImage.objects
+        .select_related("vendor_service", "vendor_service__provider")
         .order_by("-is_primary", "-created")
     )
-    serializer_class = ServiceImageSerializer
-    permission_classes = (IsServiceOwnerOrReadOnly,)
-    parser_classes = (MultiPartParser, FormParser)  # ← enable file upload
+    serializer_class = VendorServiceImageSerializer
+    permission_classes = (IsVendorServiceImageOwnerOrReadOnly,)
+    parser_classes = (MultiPartParser, FormParser)
     filter_backends = (DjangoFilterBackend, filters.OrderingFilter)
-    filterset_fields = ("service", "is_primary")
+    filterset_fields = ("vendor_service", "is_primary")
     ordering_fields = ("created", "is_primary")
     ordering = ("-is_primary", "-created")
 
@@ -813,20 +863,20 @@ class ProductSearchView(generics.ListAPIView):
     """
     Query params
     ------------
-      q=<str>                – free-text (name / description)
-      category=<id>
-      condition=<id>         – product condition ID
-      is_active=true|false   (defaults to *true* if omitted)
+      q=<str> – free-text (product.name / product.description)
+      category=<id> – product.category
+      condition=<id> – product condition ID
+      is_active=true|false (defaults to *true* if omitted)
       min_price=<decimal>
       max_price=<decimal>
-      region=<region_id>
-      district=<district_id>
+      region=<region_id> – via business OR seller.vendorprofile
+      district=<district_id> – via business OR seller.vendorprofile
     """
-    serializer_class = ProductSerializer
+    serializer_class = VendorProductSerializer
     permission_classes = (Everyone,)
     pagination_class = DefaultPagination
     filter_backends = (filters.SearchFilter,)
-    search_fields = ("name", "description",)
+    search_fields = ("product__name", "product__description",)
 
     def get_queryset(self):
         params = self.request.query_params
@@ -840,10 +890,10 @@ class ProductSearchView(generics.ListAPIView):
         district_id = params.get("district")
 
         qs = (
-            Product.objects
-            .select_related("category")
+            VendorProduct.objects
+            .select_related("product", "product__category")
             .prefetch_related("images", "tags")
-            .order_by("-product_id")
+            .order_by("-listing_id")
         )
 
         if is_active:
@@ -857,18 +907,16 @@ class ProductSearchView(generics.ListAPIView):
 
         if cat:
             try:
-                qs = qs.filter(category_id=int(cat))
+                qs = qs.filter(product__category_id=int(cat))
             except ValueError:
                 pass
 
-        # ── CONDITION ─────────────────────────────
         if cond:
             try:
                 qs = qs.filter(condition_id=int(cond))
             except ValueError:
                 pass
 
-        # ── PRICE RANGE ───────────────────────────
         if min_price:
             try:
                 qs = qs.filter(price__gte=Decimal(min_price))
@@ -880,7 +928,6 @@ class ProductSearchView(generics.ListAPIView):
             except (InvalidOperation, ValueError):
                 pass
 
-        # ── REGION ───────────────────────────────
         if region_id:
             try:
                 rid = int(region_id)
@@ -892,7 +939,6 @@ class ProductSearchView(generics.ListAPIView):
             except ValueError:
                 pass
 
-        # ── DISTRICT ────────────────────────────
         if district_id:
             try:
                 did = int(district_id)
@@ -912,20 +958,20 @@ class ServiceSearchView(generics.ListAPIView):
     """
     Query params
     ------------
-      q=<str>                  – free-text (title / description / provider / business)
-      category=<id>
-      pricing_type=<id>        – service pricing choice ID
-      is_active=true|false     (defaults to *true* if omitted)
+      q=<str> – free-text (service.title / listing.description / provider / business)
+      category=<id> – service.category
+      pricing_type=<id> – service pricing choice ID
+      is_active=true|false (defaults to *true* if omitted)
       min_price=<decimal>
       max_price=<decimal>
-      region=<region_id>
-      district=<district_id>
+      region=<region_id>– via VendorService.regions or business/provider profile
+      district=<district_id> – via VendorService.districts or business/provider profile
     """
-    serializer_class = ServiceSerializer
+    serializer_class = VendorServiceSerializer
     permission_classes = (Everyone,)
     pagination_class = DefaultPagination
     filter_backends = (filters.SearchFilter,)
-    search_fields = ("title", "description",)
+    search_fields = ("service__title", "description",)
 
     def get_queryset(self):
         params = self.request.query_params
@@ -939,10 +985,10 @@ class ServiceSearchView(generics.ListAPIView):
         district_id = params.get("district")
 
         qs = (
-            Service.objects
-            .select_related("category")
+            VendorService.objects
+            .select_related("service", "service__category")
             .prefetch_related("images", "tags")
-            .order_by("-service_id")
+            .order_by("-vendor_service_id")
         )
 
         if is_active:
@@ -950,26 +996,22 @@ class ServiceSearchView(generics.ListAPIView):
 
         if q:
             qs = qs.filter(
-                Q(title__icontains=q)
-                # Q(description__icontains=q) |
-                # Q(provider__vendorprofile__display_name__icontains=q) |
-                # Q(business__business_name__icontains=q)
+                Q(service__title__icontains=q) |
+                Q(description__icontains=q)
             )
 
         if cat:
             try:
-                qs = qs.filter(category_id=int(cat))
+                qs = qs.filter(service__category_id=int(cat))
             except ValueError:
                 pass
 
-        # ── PRICING TYPE ────────────────────────────
         if pt:
             try:
                 qs = qs.filter(pricing_type_id=int(pt))
             except ValueError:
                 pass
 
-        # ── PRICE RANGE ────────────────────────────
         if min_price:
             try:
                 qs = qs.filter(price__gte=Decimal(min_price))
@@ -981,7 +1023,6 @@ class ServiceSearchView(generics.ListAPIView):
             except (InvalidOperation, ValueError):
                 pass
 
-        # ── REGION ────────────────────────────────
         if region_id:
             try:
                 rid = int(region_id)
@@ -994,12 +1035,11 @@ class ServiceSearchView(generics.ListAPIView):
             except ValueError:
                 pass
 
-        # ── DISTRICT ──────────────────────────────
         if district_id:
             try:
                 did = int(district_id)
                 qs = qs.filter(
-                    Q(district__id=did) |
+                    Q(districts__id=did) |
                     Q(business__district_id=did) |
                     Q(business__isnull=True,
                       provider__vendorprofile__district_id=did)
@@ -1036,6 +1076,7 @@ class BusinessSearchView(generics.ListAPIView):
         return qs.order_by("business_name")
 
 
+
 # ────────────────────────────────────────────────────────────────
 # 4.  Seller / Vendor search
 #     /search/sellers/?q=kwame
@@ -1053,7 +1094,6 @@ class SellerSearchView(generics.ListAPIView):
 
     def get_queryset(self):
         q = self.request.query_params.get("q", "").strip()
-        # Only users that actually *have* a vendor profile
         qs = CustomUser.objects.filter(vendorprofile__isnull=False)
         if q:
             qs = qs.filter(vendorprofile__display_name__icontains=q)
@@ -1069,6 +1109,95 @@ class SellerSearchView(generics.ListAPIView):
 #     base_qs = Category.objects.filter(is_active=True)
 #     serializer_class = CategoryMiniSerializer
 #     search_fields = ("name", "description")
+
+@extend_schema(tags=["Product Categories"])
+class PublicProductCategoryTree(ListAPIView):
+    """
+    GET /product-categories/tree/
+    full active tree of product categories
+    """
+    permission_classes = (Everyone,)
+    queryset = Category.objects.filter(
+        type=Category.PRODUCT,
+        is_active=True,
+        parent__isnull=True
+    ).order_by("name")
+    serializer_class = CategoryTreeSerializer
+
+
+@extend_schema(tags=["Product Categories"])
+class PublicProductCategoryDetail(RetrieveAPIView):
+    """
+    GET /product-categories/<pk>/
+    subtree + detail flags for products
+    """
+    permission_classes = (Everyone,)
+    lookup_field = "pk"
+    queryset = Category.objects.filter(
+        type=Category.PRODUCT,
+        is_active=True
+    )
+    serializer_class = CategoryDetailSerializer
+
+    def retrieve(self, request, *args, **kwargs):
+        obj = self.get_object()
+        data = self.get_serializer(obj, context={"request": request}).data
+        return ok("OK", data)
+
+
+@extend_schema(tags=["Product Categories"])
+class ProductCategorySearchView(AutocompleteMixin):
+    """
+    Autocomplete (id/name) for product categories
+    """
+    base_qs = Category.objects.filter(type=Category.PRODUCT, is_active=True)
+    serializer_class = CategoryMiniSerializer
+    search_fields = ("name", "description")
+
+
+@extend_schema(tags=["Service Categories"])
+class PublicServiceCategoryTree(ListAPIView):
+    """
+    GET /service-categories/tree/
+    full active tree of service categories
+    """
+    permission_classes = (Everyone,)
+    queryset = Category.objects.filter(
+        type=Category.SERVICE,
+        is_active=True,
+        parent__isnull=True
+    ).order_by("name")
+    serializer_class = CategoryTreeSerializer
+
+
+@extend_schema(tags=["Service Categories"])
+class PublicServiceCategoryDetail(RetrieveAPIView):
+    """
+    GET /service-categories/<pk>/
+    subtree + detail flags for services
+    """
+    permission_classes = (Everyone,)
+    lookup_field = "pk"
+    queryset = Category.objects.filter(
+        type=Category.SERVICE,
+        is_active=True
+    )
+    serializer_class = CategoryDetailSerializer
+
+    def retrieve(self, request, *args, **kwargs):
+        obj = self.get_object()
+        data = self.get_serializer(obj, context={"request": request}).data
+        return ok("OK", data)
+
+
+@extend_schema(tags=["Service Categories"])
+class ServiceCategorySearchView(AutocompleteMixin):
+    """
+    Autocomplete (id/name) for service categories
+    """
+    base_qs = Category.objects.filter(type=Category.SERVICE, is_active=True)
+    serializer_class = CategoryMiniSerializer
+    search_fields = ("name", "description")
 
 
 @extend_schema(tags=["Product Conditions"])
@@ -1126,11 +1255,12 @@ class ServicePricingChoiceViewSet(viewsets.ReadOnlyModelViewSet):
 
 class TopProductsView(ListAPIView):
     permission_classes = [AllowAny]
-    serializer_class = ProductSerializer
+    serializer_class = VendorProductSerializer
 
     def get_queryset(self):
+        # assumes an orders app pointing to VendorProduct via related_name="direct_orders"
         return (
-            Product.objects.annotate(order_count=Count("direct_orders"))
+            VendorProduct.objects.annotate(order_count=Count("direct_orders"))
             .filter(is_active=True)
             .order_by("-order_count")[:10]
         )
@@ -1143,11 +1273,12 @@ class TopProductsView(ListAPIView):
 
 class TopServicesView(ListAPIView):
     permission_classes = [AllowAny]
-    serializer_class = ServiceSerializer
+    serializer_class = VendorServiceSerializer
 
     def get_queryset(self):
+        # assumes a bookings app pointing to VendorService via related_name="direct_bookings"
         return (
-            Service.objects.annotate(booking_count=Count("direct_bookings"))
+            VendorService.objects.annotate(booking_count=Count("direct_bookings"))
             .filter(is_active=True)
             .order_by("-booking_count")[:10]
         )
@@ -1210,48 +1341,47 @@ class ProductCategorySearchView(AutocompleteMixin):
 # ────────────────────────────────────────────────
 # 1.b  SERVICE CATEGORY TREE & DETAIL & SEARCH
 # ────────────────────────────────────────────────
-
-@extend_schema(tags=["Service Categories"])
-class PublicServiceCategoryTree(ListAPIView):
-    """
-    GET /service-categories/tree/
-    full active tree of service categories
-    """
-    permission_classes = (Everyone,)
-    queryset = Category.objects.filter(
-        type=Category.SERVICE,
-        is_active=True,
-        parent__isnull=True
-    ).order_by("name")
-    serializer_class = CategoryTreeSerializer
-
-
-@extend_schema(tags=["Service Categories"])
-class PublicServiceCategoryDetail(RetrieveAPIView):
-    """
-    GET /service-categories/<pk>/
-    subtree + detail flags for services
-    """
-    permission_classes = (Everyone,)
-    lookup_field = "pk"
-    queryset = Category.objects.filter(
-        type=Category.SERVICE,
-        is_active=True
-    )
-    serializer_class = CategoryDetailSerializer
-
-    def retrieve(self, request, *args, **kwargs):
-        obj = self.get_object()
-        data = self.get_serializer(obj, context={"request": request}).data
-        return ok("OK", data)
-
-
-@extend_schema(tags=["Service Categories"])
-class ServiceCategorySearchView(AutocompleteMixin):
-    """
-    Autocomplete (id/name) for service categories
-    """
-    base_qs = Category.objects.filter(type=Category.SERVICE, is_active=True)
-    serializer_class = CategoryMiniSerializer
-    search_fields = ("name", "description")
-
+#
+# @extend_schema(tags=["Service Categories"])
+# class PublicServiceCategoryTree(ListAPIView):
+#     """
+#     GET /service-categories/tree/
+#     full active tree of service categories
+#     """
+#     permission_classes = (Everyone,)
+#     queryset = Category.objects.filter(
+#         type=Category.SERVICE,
+#         is_active=True,
+#         parent__isnull=True
+#     ).order_by("name")
+#     serializer_class = CategoryTreeSerializer
+#
+#
+# @extend_schema(tags=["Service Categories"])
+# class PublicServiceCategoryDetail(RetrieveAPIView):
+#     """
+#     GET /service-categories/<pk>/
+#     subtree + detail flags for services
+#     """
+#     permission_classes = (Everyone,)
+#     lookup_field = "pk"
+#     queryset = Category.objects.filter(
+#         type=Category.SERVICE,
+#         is_active=True
+#     )
+#     serializer_class = CategoryDetailSerializer
+#
+#     def retrieve(self, request, *args, **kwargs):
+#         obj = self.get_object()
+#         data = self.get_serializer(obj, context={"request": request}).data
+#         return ok("OK", data)
+#
+#
+# @extend_schema(tags=["Service Categories"])
+# class ServiceCategorySearchView(AutocompleteMixin):
+#     """
+#     Autocomplete (id/name) for service categories
+#     """
+#     base_qs = Category.objects.filter(type=Category.SERVICE, is_active=True)
+#     serializer_class = CategoryMiniSerializer
+#     search_fields = ("name", "description")

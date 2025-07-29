@@ -20,8 +20,8 @@ from .models import (
     Category, SKU,
     Tag, Attributes,
     ProductCondition, ProductServiceStatus,
-    Product, ProductImage,
-    Service, ServicePricingChoices,
+    GenericProduct, VendorProduct, VendorProductImage, ProductImage,
+    GenericService, VendorService, VendorServiceImage, ServicePricingChoices,
     Region, District, Town, ServiceImage,
 )
 
@@ -176,24 +176,85 @@ class CategoryDetailSerializer(CategoryTreeSerializer):
 # ───────────────────────────────────────────────────────────────
 # 2.  PRODUCT
 # ───────────────────────────────────────────────────────────────
-class ProductImageSerializer(_ImageURLMixin, serializers.ModelSerializer):
-    # ──────────────────────────────────────────────
-    # NEW             ↓  write-only upload bucket
-    # ──────────────────────────────────────────────
-    image = serializers.ImageField(write_only=True, required=True)
+# class ProductImageSerializer(_ImageURLMixin, serializers.ModelSerializer):
+#     # ──────────────────────────────────────────────
+#     # NEW             ↓  write-only upload bucket
+#     # ──────────────────────────────────────────────
+#     image = serializers.ImageField(write_only=True, required=True)
+#
+#     # existing read-only absolute URL
+#     url = serializers.SerializerMethodField(read_only=True)
+#
+#     class Meta:
+#         model = ProductImage
+#         # include the raw `image` on writes, never on reads
+#         fields = ("id", "product", "is_primary", "image", "url", "created")
+#         read_only_fields = ("id", "url", "created")
+#
+#     # ---------------------------------------------
+#     # helper that turns storage path → absolute URL
+#     # ---------------------------------------------
+#     def get_url(self, obj):
+#         return self._abs(self.context.get("request"), obj.image)
 
-    # existing read-only absolute URL
-    url = serializers.SerializerMethodField(read_only=True)
+
+class GenericProductImageSerializer(_ImageURLMixin, serializers.ModelSerializer):
+    url = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductImage
-        # include the raw `image` on writes, never on reads
-        fields = ("id", "product", "is_primary", "image", "url", "created")
-        read_only_fields = ("id", "url", "created")
+        fields = ("id", "url", "is_primary")
 
-    # ---------------------------------------------
-    # helper that turns storage path → absolute URL
-    # ---------------------------------------------
+    def get_url(self, obj):
+        return self._abs(self.context.get("request"), obj.image)
+
+
+class GenericProductSerializer(_ImageURLMixin, serializers.ModelSerializer):
+    images = GenericProductImageSerializer(many=True, read_only=True)
+    category = CategoryMiniSerializer(read_only=True)
+    category_id = serializers.PrimaryKeyRelatedField(
+        queryset=Category.objects.filter(type=Category.PRODUCT),
+        source="category", write_only=True
+    )
+
+    class Meta:
+        model = GenericProduct
+        fields = (
+            "product_id", "name", "slug", "description",
+            "category", "category_id",
+            "featured", "is_active",
+            "images", "created_at", "last_updated_at",
+        )
+        read_only_fields = ("created_at", "last_updated_at")
+
+    def validate(self, data):
+        ...
+        return data
+
+    def create(self, data):
+        with transaction.atomic():
+            gp = GenericProduct.objects.create(**data)
+        return gp
+
+    def update(self, instance, data):
+        with transaction.atomic():
+            instance = super().update(instance, data)
+        return instance
+
+
+class GenericProductMiniSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GenericProduct
+        fields = ("product_id", "name", "slug")
+
+
+class VendorProductImageSerializer(_ImageURLMixin, serializers.ModelSerializer):
+    url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VendorProductImage
+        fields = ("id", "url", "is_primary")
+
     def get_url(self, obj):
         return self._abs(self.context.get("request"), obj.image)
 
@@ -206,109 +267,264 @@ class SellerMiniSerializer(serializers.ModelSerializer):
         fields = ("id", "username", "email", "phone_number")
 
 
-class ProductMiniSerializer(serializers.ModelSerializer):
-    """
-    A super-lean representation that is good for “related products”
-    widgets – one image, seller name, price & currency.
-    """
-    image = serializers.SerializerMethodField()
+# class ProductMiniSerializer(serializers.ModelSerializer):
+#     """
+#     A super-lean representation that is good for “related products”
+#     widgets – one image, seller name, price & currency.
+#     """
+#     image = serializers.SerializerMethodField()
+#
+#     class Meta:
+#         model = Product
+#         fields = (
+#             "product_id", "name", "slug",
+#             "price", "currency",
+#             "image",
+#         )
+#
+#     # pick primary → else first image → else None
+#     def get_image(self, obj):
+#         req = self.context.get("request")
+#         img = obj.images.filter(is_primary=True).first() \
+#               or obj.images.first()
+#         return (
+#             req.build_absolute_uri(img.image.url) if img and req else None
+#         )
 
-    class Meta:
-        model = Product
-        fields = (
-            "product_id", "name", "slug",
-            "price", "currency",
-            "image",
-        )
 
-    # pick primary → else first image → else None
-    def get_image(self, obj):
-        req = self.context.get("request")
-        img = obj.images.filter(is_primary=True).first() \
-              or obj.images.first()
-        return (
-            req.build_absolute_uri(img.image.url) if img and req else None
-        )
+# class _ProductBaseSerializer(serializers.ModelSerializer):
+#     condition = ConditionMiniSerializer(read_only=True)
+#     status = StatusMiniSerializer(read_only=True)
+#     sku = SKUMiniSerializer(read_only=True)
+#     seller = SellerMiniSerializer(read_only=True)
+#     vendor_profile = serializers.SerializerMethodField()
+#     business = BusinessBriefSerializer(read_only=True)
+#     stock_message = serializers.SerializerMethodField()
+#
+#     tags = TagSerializer(many=True, read_only=True)
+#     attributes = AttributeSerializer(many=True, read_only=True)
+#     images = ProductImageSerializer(many=True, read_only=True)
+#
+#     seller_id = serializers.PrimaryKeyRelatedField(
+#         queryset=CustomUser.objects.all(), source="seller",
+#         write_only=True, required=False
+#     )
+#     business_id = serializers.PrimaryKeyRelatedField(
+#         queryset=Business.objects.all(), source="business",
+#         write_only=True, required=False, allow_null=True
+#     )
+#
+#     category = CategoryDetailSerializer(read_only=True)
+#     category_id = serializers.PrimaryKeyRelatedField(
+#         queryset=Category.objects.filter(type=Category.PRODUCT),
+#         source="category", write_only=True, required=True
+#     )
+#     condition_id = serializers.PrimaryKeyRelatedField(
+#         queryset=ProductCondition.objects.all(), source="condition",
+#         write_only=True, required=True
+#     )
+#     status_id = serializers.PrimaryKeyRelatedField(
+#         queryset=ProductServiceStatus.objects.all(), source="status",
+#         write_only=True, required=True
+#     )
+#     sku_id = serializers.PrimaryKeyRelatedField(
+#         queryset=SKU.objects.all(), source="sku",
+#         write_only=True, required=False
+#     )
+#
+#     tag_ids = serializers.PrimaryKeyRelatedField(
+#         many=True, queryset=Tag.objects.all(), source="tags",
+#         write_only=True, required=False
+#     )
+#     attribute_ids = serializers.PrimaryKeyRelatedField(
+#         many=True, queryset=Attributes.objects.all(), source="attributes",
+#         write_only=True, required=False
+#     )
+#
+#     new_images = serializers.ListField(
+#         child=serializers.ImageField(), write_only=True,
+#         required=False, help_text="Optional list of files → ProductImage"
+#     )
+#
+#     object_type = serializers.SerializerMethodField()
+#
+#     class Meta:
+#         model = Product
+#         fields = (
+#             "product_id", "object_type",
+#             "name", "slug", "description",
+#             "seller", "seller_id", "vendor_profile",
+#             "business", "business_id",
+#             "category", "category_id",
+#             "condition", "condition_id",
+#             "status", "status_id",
+#             "sku", "sku_id",
+#             "price", "currency", "discount_price", "quantity", "stock_message",
+#             "featured", "is_active",
+#             "tags", "tag_ids",
+#             "attributes", "attribute_ids",
+#             "images", "new_images",
+#             "created_at", "last_updated_at",
+#         )
+#         read_only_fields = ("created_at", "last_updated_at")
+#
+#     def get_object_type(self, _):
+#         return "Product"
+#
+#     def get_stock_message(self, obj):
+#         if obj.quantity <= 5:
+#             return "Few units left"
+#         return None
+#
+#     def get_vendor_profile(self, obj):
+#         try:
+#             vp = obj.seller.vendorprofile
+#         except VendorProfile.DoesNotExist:
+#             return None
+#         return VendorProfileSerializer(vp, context=self.context).data
+#
+#     def validate_new_images(self, images):
+#         for img in images:
+#             try:
+#                 Image.open(img).verify()
+#                 img.seek(0)
+#             except Exception:
+#                 raise serializers.ValidationError("All uploaded files must be valid image formats.")
+#         return images
+#
+#     def create(self, validated_data):
+#         tags = validated_data.pop("tags", [])
+#         attrs = validated_data.pop("attributes", [])
+#         images = validated_data.pop("new_images", [])
+#
+#         with transaction.atomic():
+#             product = Product.objects.create(**validated_data)
+#             if tags:
+#                 product.tags.set(tags)
+#             if attrs:
+#                 product.attributes.set(attrs)
+#             for img in images:
+#                 ProductImage.objects.create(product=product, image=img)
+#         return product
+#
+#     def update(self, instance, validated_data):
+#         tags = validated_data.pop("tags", None)
+#         attrs = validated_data.pop("attributes", None)
+#         images = validated_data.pop("new_images", [])
+#
+#         with transaction.atomic():
+#             instance = super().update(instance, validated_data)
+#             if tags is not None:
+#                 instance.tags.set(tags)
+#             if attrs is not None:
+#                 instance.attributes.set(attrs)
+#             for img in images:
+#                 ProductImage.objects.create(product=instance, image=img)
+#         return instance
+#
+#
+# class ProductSerializer(_ProductBaseSerializer):
+#     """
+#     Thin wrapper that simply re-uses the mapping defined in
+#     `_ProductBaseSerializer`.
+#
+#     Keeping a separate class is handy if, in the future, you want
+#     to add product-specific read-only analytics _without_ changing
+#     the write contract that the FE already relies on.
+#     """
+#     average_rating = serializers.SerializerMethodField()
+#
+#     class Meta(_ProductBaseSerializer.Meta):
+#         fields = _ProductBaseSerializer.Meta.fields + ("average_rating",)
+#
+#     def get_average_rating(self, obj):
+#         # look up only “rating”-type Feedback for this product
+#         ct = ContentType.objects.get_for_model(obj)
+#         avg = (
+#             Feedback.objects
+#             .filter(
+#                 content_type=ct,
+#                 object_id=obj.product_id,
+#                 feedback_type="rating",
+#                 rating__isnull=False
+#             )
+#             .aggregate(a=Avg("rating"))["a"]
+#         )
+#         return float(avg or 0.0)
 
 
-class _ProductBaseSerializer(serializers.ModelSerializer):
-    condition = ConditionMiniSerializer(read_only=True)
-    status = StatusMiniSerializer(read_only=True)
-    sku = SKUMiniSerializer(read_only=True)
-    seller = SellerMiniSerializer(read_only=True)
-    vendor_profile = serializers.SerializerMethodField()
-    business = BusinessBriefSerializer(read_only=True)
-    stock_message = serializers.SerializerMethodField()
-
-    tags = TagSerializer(many=True, read_only=True)
-    attributes = AttributeSerializer(many=True, read_only=True)
-    images = ProductImageSerializer(many=True, read_only=True)
-
-    seller_id = serializers.PrimaryKeyRelatedField(
-        queryset=CustomUser.objects.all(), source="seller",
-        write_only=True, required=False
+class VendorProductSerializer(serializers.ModelSerializer):
+    product = GenericProductMiniSerializer(read_only=True)
+    product_id = serializers.PrimaryKeyRelatedField(
+        queryset=GenericProduct.objects.filter(is_active=True),
+        source="product", write_only=True
     )
+    seller = SellerMiniSerializer(read_only=True)
+    seller_id = serializers.PrimaryKeyRelatedField(
+        queryset=CustomUser.objects.all(), source="seller", write_only=True
+    )
+    business = BusinessBriefSerializer(read_only=True)
     business_id = serializers.PrimaryKeyRelatedField(
         queryset=Business.objects.all(), source="business",
-        write_only=True, required=False, allow_null=True
+        write_only=True, allow_null=True, required=False
     )
 
-    category = CategoryDetailSerializer(read_only=True)
-    category_id = serializers.PrimaryKeyRelatedField(
-        queryset=Category.objects.filter(type=Category.PRODUCT),
-        source="category", write_only=True, required=True
-    )
-    condition_id = serializers.PrimaryKeyRelatedField(
-        queryset=ProductCondition.objects.all(), source="condition",
-        write_only=True, required=True
-    )
-    status_id = serializers.PrimaryKeyRelatedField(
-        queryset=ProductServiceStatus.objects.all(), source="status",
-        write_only=True, required=True
-    )
-    sku_id = serializers.PrimaryKeyRelatedField(
-        queryset=SKU.objects.all(), source="sku",
-        write_only=True, required=False
-    )
-
+    tags = TagSerializer(many=True, read_only=True)
     tag_ids = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=Tag.objects.all(), source="tags",
-        write_only=True, required=False
+        many=True, queryset=Tag.objects.all(),
+        source="tags", write_only=True, required=False
     )
-    attribute_ids = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=Attributes.objects.all(), source="attributes",
-        write_only=True, required=False
+    attributes = AttributeSerializer(many=True, read_only=True)
+    attr_ids = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=Attributes.objects.all(),
+        source="attributes", write_only=True, required=False
     )
-
+    images = VendorProductImageSerializer(many=True, read_only=True)
     new_images = serializers.ListField(
-        child=serializers.ImageField(), write_only=True,
-        required=False, help_text="Optional list of files → ProductImage"
+        child=serializers.ImageField(), write_only=True, required=False
     )
 
-    object_type = serializers.SerializerMethodField()
+    condition = ConditionMiniSerializer(read_only=True)
+    condition_id = serializers.PrimaryKeyRelatedField(
+        queryset=ProductCondition.objects.all(),
+        source="condition", write_only=True, required=False
+    )
+    status = StatusMiniSerializer(read_only=True)
+    status_id = serializers.PrimaryKeyRelatedField(
+        queryset=ProductServiceStatus.objects.all(),
+        source="status", write_only=True, required=False
+    )
+
+    name = serializers.CharField(read_only=True)
+    description = serializers.CharField(read_only=True)
+
+    stock_message = serializers.SerializerMethodField(read_only=True)
+    average_rating = serializers.SerializerMethodField(read_only=True)
+    object_type = serializers.SerializerMethodField(read_only=True)
+    vendor_profile = serializers.SerializerMethodField()
 
     class Meta:
-        model = Product
+        model = VendorProduct
         fields = (
-            "product_id", "object_type",
-            "name", "slug", "description",
-            "seller", "seller_id", "vendor_profile",
-            "business", "business_id",
-            "category", "category_id",
+            "name", "description",
+            "listing_id", "object_type",
+            "product", "product_id",
+            "seller", "seller_id", "business", "business_id",
+            "price", "currency", "discount_price", "quantity",
+            "stock_message",
             "condition", "condition_id",
             "status", "status_id",
-            "sku", "sku_id",
-            "price", "currency", "discount_price", "quantity", "stock_message",
-            "featured", "is_active",
             "tags", "tag_ids",
-            "attributes", "attribute_ids",
+            "attributes", "attr_ids",
             "images", "new_images",
+            "featured", "is_active",
+            "average_rating",
             "created_at", "last_updated_at",
         )
         read_only_fields = ("created_at", "last_updated_at")
 
     def get_object_type(self, _):
-        return "Product"
+        return "VendorProduct"
 
     def get_stock_message(self, obj):
         if obj.quantity <= 5:
@@ -322,68 +538,13 @@ class _ProductBaseSerializer(serializers.ModelSerializer):
             return None
         return VendorProfileSerializer(vp, context=self.context).data
 
-    def validate_new_images(self, images):
-        for img in images:
-            try:
-                Image.open(img).verify()
-                img.seek(0)
-            except Exception:
-                raise serializers.ValidationError("All uploaded files must be valid image formats.")
-        return images
-
-    def create(self, validated_data):
-        tags = validated_data.pop("tags", [])
-        attrs = validated_data.pop("attributes", [])
-        images = validated_data.pop("new_images", [])
-
-        with transaction.atomic():
-            product = Product.objects.create(**validated_data)
-            if tags:
-                product.tags.set(tags)
-            if attrs:
-                product.attributes.set(attrs)
-            for img in images:
-                ProductImage.objects.create(product=product, image=img)
-        return product
-
-    def update(self, instance, validated_data):
-        tags = validated_data.pop("tags", None)
-        attrs = validated_data.pop("attributes", None)
-        images = validated_data.pop("new_images", [])
-
-        with transaction.atomic():
-            instance = super().update(instance, validated_data)
-            if tags is not None:
-                instance.tags.set(tags)
-            if attrs is not None:
-                instance.attributes.set(attrs)
-            for img in images:
-                ProductImage.objects.create(product=instance, image=img)
-        return instance
-
-
-class ProductSerializer(_ProductBaseSerializer):
-    """
-    Thin wrapper that simply re-uses the mapping defined in
-    `_ProductBaseSerializer`.
-
-    Keeping a separate class is handy if, in the future, you want
-    to add product-specific read-only analytics _without_ changing
-    the write contract that the FE already relies on.
-    """
-    average_rating = serializers.SerializerMethodField()
-
-    class Meta(_ProductBaseSerializer.Meta):
-        fields = _ProductBaseSerializer.Meta.fields + ("average_rating",)
-
     def get_average_rating(self, obj):
-        # look up only “rating”-type Feedback for this product
         ct = ContentType.objects.get_for_model(obj)
         avg = (
             Feedback.objects
             .filter(
                 content_type=ct,
-                object_id=obj.product_id,
+                object_id=obj.listing_id,
                 feedback_type="rating",
                 rating__isnull=False
             )
@@ -391,33 +552,109 @@ class ProductSerializer(_ProductBaseSerializer):
         )
         return float(avg or 0.0)
 
+    def validate_new_images(self, imgs):
+        for img in imgs:
+            try:
+                Image.open(img).verify()
+                img.seek(0)
+            except Exception:
+                raise serializers.ValidationError("Invalid image file")
+        return imgs
 
-class ProductDetailSerializer(ProductSerializer):
+    def create(self, data):
+        images = data.pop("new_images", [])
+        tags = data.pop("tags", [])
+        attrs = data.pop("attributes", [])
+        with transaction.atomic():
+            vp = VendorProduct.objects.create(**data)
+            vp.tags.set(tags)
+            vp.attributes.set(attrs)
+            for img in images:
+                VendorProductImage.objects.create(vendor_product=vp, image=img)
+        return vp
+
+    def update(self, instance, data):
+        imgs = data.pop("new_images", [])
+        tags = data.pop("tags", None)
+        attrs = data.pop("attributes", None)
+        with transaction.atomic():
+            instance = super().update(instance, data)
+            if tags is not None:
+                instance.tags.set(tags)
+            if attrs is not None:
+                instance.attributes.set(attrs)
+            for img in imgs:
+                VendorProductImage.objects.create(vendor_product=instance, image=img)
+        return instance
+
+
+# class ProductDetailSerializer(ProductSerializer):
+#     related_products = serializers.SerializerMethodField()
+#     feedback = serializers.SerializerMethodField()
+#     rating_stats = serializers.SerializerMethodField()
+#
+#     class Meta(ProductSerializer.Meta):
+#         fields = ProductSerializer.Meta.fields + (
+#             "related_products", "feedback", "rating_stats"
+#         )
+#
+#     def _root_category(self, cat):
+#         while cat.parent_id:
+#             cat = cat.parent
+#         return cat
+#
+#     def get_related_products(self, obj):
+#         root = self._root_category(obj.category)
+#         qs = Product.objects.filter(
+#             category__in=[root] + list(root.children.all()),
+#             is_active=True
+#         ).exclude(pk=obj.pk).select_related("category").prefetch_related("images").order_by("?")[:8]
+#         return ProductMiniSerializer(qs, many=True, context=self.context).data
+#
+#     def get_feedback(self, obj):
+#         ct = ContentType.objects.get_for_model(obj)
+#         qs = Feedback.objects.filter(content_type=ct, object_id=obj.product_id).order_by("-submitted_at")
+#         result = {}
+#         for key, _ in Feedback.FEEDBACK_TYPE_CHOICES:
+#             subset = qs.filter(feedback_type=key)
+#             result[key] = FeedbackPublicSerializer(subset, many=True, context=self.context).data
+#         return result
+#
+#     def get_rating_stats(self, obj):
+#         ct = ContentType.objects.get_for_model(obj)
+#         qs = Feedback.objects.filter(
+#             content_type=ct,
+#             object_id=obj.product_id,
+#             feedback_type="rating",
+#             rating__isnull=False
+#         )
+#         avg = qs.aggregate(avg_rating=Avg("rating"))["avg_rating"] or 0
+#         dist_qs = qs.values("rating").annotate(count=Count("id"))
+#         dist = {str(i): 0 for i in range(1, 6)}
+#         for row in dist_qs:
+#             dist[str(row["rating"])] = row["count"]
+#         return {"average": float(avg), "distribution": dist}
+
+
+class VendorProductDetailSerializer(VendorProductSerializer):
     related_products = serializers.SerializerMethodField()
-    feedback = serializers.SerializerMethodField()
-    rating_stats = serializers.SerializerMethodField()
+    feedback = serializers.SerializerMethodField(read_only=True)
+    rating_stats = serializers.SerializerMethodField(read_only=True)
 
-    class Meta(ProductSerializer.Meta):
-        fields = ProductSerializer.Meta.fields + (
-            "related_products", "feedback", "rating_stats"
-        )
-
-    def _root_category(self, cat):
-        while cat.parent_id:
-            cat = cat.parent
-        return cat
+    class Meta(VendorProductSerializer.Meta):
+        fields = VendorProductSerializer.Meta.fields + ("related_products", "feedback", "rating_stats")
 
     def get_related_products(self, obj):
         root = self._root_category(obj.category)
-        qs = Product.objects.filter(
+        qs = GenericProduct.objects.filter(
             category__in=[root] + list(root.children.all()),
             is_active=True
         ).exclude(pk=obj.pk).select_related("category").prefetch_related("images").order_by("?")[:8]
-        return ProductMiniSerializer(qs, many=True, context=self.context).data
+        return GenericProductMiniSerializer(qs, many=True, context=self.context).data
 
     def get_feedback(self, obj):
         ct = ContentType.objects.get_for_model(obj)
-        qs = Feedback.objects.filter(content_type=ct, object_id=obj.product_id).order_by("-submitted_at")
+        qs = Feedback.objects.filter(content_type=ct, object_id=obj.listing_id).order_by("-submitted_at")
         result = {}
         for key, _ in Feedback.FEEDBACK_TYPE_CHOICES:
             subset = qs.filter(feedback_type=key)
@@ -428,7 +665,7 @@ class ProductDetailSerializer(ProductSerializer):
         ct = ContentType.objects.get_for_model(obj)
         qs = Feedback.objects.filter(
             content_type=ct,
-            object_id=obj.product_id,
+            object_id=obj.listing_id,
             feedback_type="rating",
             rating__isnull=False
         )
@@ -459,26 +696,37 @@ class _LocationWriteMixin(serializers.Serializer):
         required=False, source="town")
 
 
-class ServiceImageSerializer(_ImageURLMixin, serializers.ModelSerializer):
-    # write-only bucket for the actual file
-    image = serializers.ImageField(write_only=True, required=True)
+# class ServiceImageSerializer(_ImageURLMixin, serializers.ModelSerializer):
+#     # write-only bucket for the actual file
+#     image = serializers.ImageField(write_only=True, required=True)
+#
+#     # read-only absolute URL
+#     url = serializers.SerializerMethodField(read_only=True)
+#
+#     class Meta:
+#         model = ServiceImage
+#         fields = (
+#             "id",
+#             "service",  # FK (writable)
+#             "is_primary",
+#             "image",  # <- upload here
+#             "url",  # <- serve on reads
+#             "created",
+#         )
+#         read_only_fields = ("id", "url", "created")
+#
+#     # helper: build absolute URL
+#     def get_url(self, obj):
+#         return self._abs(self.context.get("request"), obj.image)
 
-    # read-only absolute URL
-    url = serializers.SerializerMethodField(read_only=True)
+
+class GenericServiceImageSerializer(_ImageURLMixin, serializers.ModelSerializer):
+    url = serializers.SerializerMethodField()
 
     class Meta:
         model = ServiceImage
-        fields = (
-            "id",
-            "service",  # FK (writable)
-            "is_primary",
-            "image",  # <- upload here
-            "url",  # <- serve on reads
-            "created",
-        )
-        read_only_fields = ("id", "url", "created")
+        fields = ("id", "url", "is_primary", "service", "image")
 
-    # helper: build absolute URL
     def get_url(self, obj):
         return self._abs(self.context.get("request"), obj.image)
 
@@ -489,34 +737,67 @@ class ServicePricingChoiceSerializer(serializers.ModelSerializer):
         fields = ("id", "name", "description")
 
 
-class ServiceSerializer(_LocationWriteMixin, serializers.ModelSerializer):
-    category = CategoryTreeSerializer(read_only=True)
+class GenericServiceSerializer(serializers.ModelSerializer):
+    images = GenericServiceImageSerializer(many=True, read_only=True)
+    category = CategoryMiniSerializer(read_only=True)
     category_id = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.filter(type=Category.SERVICE),
-        source="category", write_only=True, required=True
-    )
-    pricing_type = serializers.StringRelatedField(read_only=True)
-    pricing_type_id = serializers.PrimaryKeyRelatedField(
-        queryset=ServicePricingChoices.objects.all(),  # or correct ServicePricingChoices model
-        source="pricing_type", write_only=True, required=True
+        source="category", write_only=True
     )
 
+    class Meta:
+        model = GenericService
+        fields = (
+            "service_id", "title", "slug", "description",
+            "category", "category_id",
+            "is_active",
+            "images", "created_at", "updated_at",
+        )
+        read_only_fields = ("created_at", "updated_at")
+
+
+class VendorServiceImageSerializer(_ImageURLMixin, serializers.ModelSerializer):
+    url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VendorServiceImage
+        fields = ("id", "url", "is_primary", "image", "vendor_service",)
+
+    def get_url(self, obj):
+        return self._abs(self.context.get("request"), obj.image)
+
+
+class VendorServiceSerializer(serializers.ModelSerializer):
+    service = GenericServiceSerializer(read_only=True)
+    service_id = serializers.PrimaryKeyRelatedField(
+        queryset=GenericService.objects.filter(is_active=True),
+        source="service", write_only=True
+    )
+    provider = SellerMiniSerializer(read_only=True)
+    provider_id = serializers.PrimaryKeyRelatedField(
+        queryset=CustomUser.objects.all(), source="provider", write_only=True
+    )
+    business = BusinessBriefSerializer(read_only=True)
+    business_id = serializers.PrimaryKeyRelatedField(
+        queryset=Business.objects.all(),
+        source="business", write_only=True, allow_null=True, required=False
+    )
     regions = RegionMiniSerializer(many=True, read_only=True)
     region_ids = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=Region.objects.all(),
-        source="regions", write_only=True, required=False
+        many=True, queryset=Region.objects.all(), source="regions", write_only=True, required=False
     )
     district = DistrictMiniSerializer(many=True, read_only=True)
     district_ids = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=District.objects.all(),
-        source="district", write_only=True, required=False
+        many=True, queryset=District.objects.all(), source="districts", write_only=True, required=False
     )
     town = TownMiniSerializer(many=True, read_only=True)
     town_ids = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=Town.objects.all(),
-        source="town", write_only=True, required=False
+        many=True, queryset=Town.objects.all(), source="towns", write_only=True, required=False
     )
-
+    images = VendorServiceImageSerializer(many=True, read_only=True)
+    new_images = serializers.ListField(
+        child=serializers.ImageField(), write_only=True, required=False
+    )
     tags = TagSerializer(many=True, read_only=True)
     tag_ids = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Tag.objects.all(),
@@ -528,35 +809,24 @@ class ServiceSerializer(_LocationWriteMixin, serializers.ModelSerializer):
         source="attributes", write_only=True, required=False
     )
 
-    images = ServiceImageSerializer(many=True, read_only=True)
-    new_images = serializers.ListField(
-        child=serializers.ImageField(), write_only=True, required=False,
-        help_text="Optional list of files → ServiceImage"
-    )
-
-    business = BusinessBriefSerializer(read_only=True)
-    business_id = serializers.PrimaryKeyRelatedField(
-        queryset=Business.objects.all(), source="business", write_only=True,
-        required=False, allow_null=True
-    )
-    provider = SellerMiniSerializer(read_only=True)
     vendor_profile = serializers.SerializerMethodField()
     average_rating = serializers.SerializerMethodField()
     object_type = serializers.SerializerMethodField()
 
+    is_remote = serializers.BooleanField(default=False)
+
     class Meta:
-        model = Service
+        model = VendorService
         fields = (
-            "service_id", "object_type",
-            "title", "description", "provider", "vendor_profile",
-            "business", "business_id",
-            "category", "category_id",
-            "pricing_type", "pricing_type_id",
-            "price", "is_remote",
+            "vendor_service_id", "object_type",
+            "service", "service_id",
+            "provider", "provider_id", "business", "business_id",
+            "pricing_type", "price",
+            "is_remote",
             "regions", "region_ids",
             "district", "district_ids",
             "town", "town_ids",
-            "is_active",
+            "featured", "is_active",
             "tags", "tag_ids",
             "attributes", "attribute_ids",
             "images", "new_images",
@@ -565,7 +835,7 @@ class ServiceSerializer(_LocationWriteMixin, serializers.ModelSerializer):
         read_only_fields = ("created_at", "updated_at")
 
     def get_object_type(self, _):
-        return "Service"
+        return "VendorService"
 
     def get_vendor_profile(self, obj):
         try:
@@ -574,29 +844,28 @@ class ServiceSerializer(_LocationWriteMixin, serializers.ModelSerializer):
             return None
         return VendorProfileSerializer(vp, context=self.context).data
 
-    def validate_new_images(self, images):
-        for img in images:
-            try:
-                Image.open(img).verify()
-                img.seek(0)
-            except Exception:
-                raise serializers.ValidationError("All uploaded files must be valid image formats.")
-        return images
-
     def get_average_rating(self, obj):
-        # look up only “rating”-type Feedback for this product
         ct = ContentType.objects.get_for_model(obj)
         avg = (
             Feedback.objects
             .filter(
                 content_type=ct,
-                object_id=obj.service_id,
+                object_id=obj.vendor_service_id,
                 feedback_type="rating",
                 rating__isnull=False
             )
             .aggregate(a=Avg("rating"))["a"]
         )
         return float(avg or 0.0)
+
+    def validate_new_images(self, imgs):
+        for img in imgs:
+            try:
+                Image.open(img).verify()
+                img.seek(0)
+            except Exception as e:
+                raise serializers.ValidationError("Invalid image file")
+        return imgs
 
     def create(self, validated_data):
         new_images = validated_data.pop("new_images", [])
@@ -606,23 +875,25 @@ class ServiceSerializer(_LocationWriteMixin, serializers.ModelSerializer):
         district_objs = validated_data.pop("district", [])
         town_objs = validated_data.pop("town", [])
 
-        request = self.context.get("request")
-        if not request or not request.user or not request.user.is_authenticated:
-            raise serializers.ValidationError("Authentication credentials were not provided.")
-        validated_data["provider"] = request.user
+        with transaction.atomic():
+            request = self.context.get("request")
+            if not request or not request.user or not request.user.is_authenticated:
+                raise serializers.ValidationError("Authentication credentials were not provided.")
+            validated_data["provider"] = request.user
 
-        service = Service.objects.create(**validated_data)
-        if tag_objs:
-            service.tags.set(tag_objs)
-        if attr_objs:
-            service.attributes.set(attr_objs)
-        service.regions.set(region_objs)
-        service.district.set(district_objs)
-        service.town.set(town_objs)
+            service = VendorService.objects.create(**validated_data)
+            if tag_objs:
+                service.tags.set(tag_objs)
+            if attr_objs:
+                service.attributes.set(attr_objs)
+            service.regions.set(region_objs)
+            service.districts.set(district_objs)
+            service.towns.set(town_objs)
 
-        for img in new_images:
-            ServiceImage.objects.create(service=service, image=img)
+            for img in new_images:
+                VendorServiceImage.objects.create(vendor_service=service, image=img)
         return service
+
 
     def update(self, instance, validated_data):
         new_images = validated_data.pop("new_images", [])
@@ -632,39 +903,198 @@ class ServiceSerializer(_LocationWriteMixin, serializers.ModelSerializer):
         district_objs = validated_data.pop("district", None)
         town_objs = validated_data.pop("town", None)
 
-        instance = super().update(instance, validated_data)
+        with transaction.atomic():
+            instance = super().update(instance, validated_data)
+            if tag_objs is not None:
+                instance.tags.set(tag_objs)
+            if attr_objs is not None:
+                instance.attributes.set(attr_objs)
+            if region_objs is not None:
+                instance.regions.set(region_objs)
+            if district_objs is not None:
+                instance.district.set(district_objs)
+            if town_objs is not None:
+                instance.town.set(town_objs)
 
-        if tag_objs is not None:
-            instance.tags.set(tag_objs)
-        if attr_objs is not None:
-            instance.attributes.set(attr_objs)
-        if region_objs is not None:
-            instance.regions.set(region_objs)
-        if district_objs is not None:
-            instance.district.set(district_objs)
-        if town_objs is not None:
-            instance.town.set(town_objs)
-
-        for img in new_images:
-            ServiceImage.objects.create(service=instance, image=img)
+            for img in new_images:
+                VendorServiceImage.objects.create(vendor_service=instance, image=img)
         return instance
 
 
-class ServiceMiniSerializer(serializers.ModelSerializer):
-    category = CategoryMiniSerializer(read_only=True)
+# class ServiceSerializer(_LocationWriteMixin, serializers.ModelSerializer):
+#     category = CategoryTreeSerializer(read_only=True)
+#     category_id = serializers.PrimaryKeyRelatedField(
+#         queryset=Category.objects.filter(type=Category.SERVICE),
+#         source="category", write_only=True, required=True
+#     )
+#     pricing_type = serializers.StringRelatedField(read_only=True)
+#     pricing_type_id = serializers.PrimaryKeyRelatedField(
+#         queryset=ServicePricingChoices.objects.all(),  # or correct ServicePricingChoices model
+#         source="pricing_type", write_only=True, required=True
+#     )
+#
+#     regions = RegionMiniSerializer(many=True, read_only=True)
+#     region_ids = serializers.PrimaryKeyRelatedField(
+#         many=True, queryset=Region.objects.all(),
+#         source="regions", write_only=True, required=False
+#     )
+#     district = DistrictMiniSerializer(many=True, read_only=True)
+#     district_ids = serializers.PrimaryKeyRelatedField(
+#         many=True, queryset=District.objects.all(),
+#         source="district", write_only=True, required=False
+#     )
+#     town = TownMiniSerializer(many=True, read_only=True)
+#     town_ids = serializers.PrimaryKeyRelatedField(
+#         many=True, queryset=Town.objects.all(),
+#         source="town", write_only=True, required=False
+#     )
+#
+#     tags = TagSerializer(many=True, read_only=True)
+#     tag_ids = serializers.PrimaryKeyRelatedField(
+#         many=True, queryset=Tag.objects.all(),
+#         source="tags", write_only=True, required=False
+#     )
+#     attributes = AttributeSerializer(many=True, read_only=True)
+#     attribute_ids = serializers.PrimaryKeyRelatedField(
+#         many=True, queryset=Attributes.objects.all(),
+#         source="attributes", write_only=True, required=False
+#     )
+#
+#     images = ServiceImageSerializer(many=True, read_only=True)
+#     new_images = serializers.ListField(
+#         child=serializers.ImageField(), write_only=True, required=False,
+#         help_text="Optional list of files → ServiceImage"
+#     )
+#
+#     business = BusinessBriefSerializer(read_only=True)
+#     business_id = serializers.PrimaryKeyRelatedField(
+#         queryset=Business.objects.all(), source="business", write_only=True,
+#         required=False, allow_null=True
+#     )
+#     provider = SellerMiniSerializer(read_only=True)
+#     vendor_profile = serializers.SerializerMethodField()
+#     average_rating = serializers.SerializerMethodField()
+#     object_type = serializers.SerializerMethodField()
+#
+#     class Meta:
+#         model = Service
+#         fields = (
+#             "service_id", "object_type",
+#             "title", "description", "provider", "vendor_profile",
+#             "business", "business_id",
+#             "category", "category_id",
+#             "pricing_type", "pricing_type_id",
+#             "price", "is_remote",
+#             "regions", "region_ids",
+#             "district", "district_ids",
+#             "town", "town_ids",
+#             "is_active",
+#             "tags", "tag_ids",
+#             "attributes", "attribute_ids",
+#             "images", "new_images",
+#             "created_at", "updated_at", "average_rating"
+#         )
+#         read_only_fields = ("created_at", "updated_at")
+#
+#     def get_object_type(self, _):
+#         return "Service"
+#
+#     def get_vendor_profile(self, obj):
+#         try:
+#             vp = obj.provider.vendorprofile
+#         except VendorProfile.DoesNotExist:
+#             return None
+#         return VendorProfileSerializer(vp, context=self.context).data
+#
+#     def validate_new_images(self, images):
+#         for img in images:
+#             try:
+#                 Image.open(img).verify()
+#                 img.seek(0)
+#             except Exception:
+#                 raise serializers.ValidationError("All uploaded files must be valid image formats.")
+#         return images
+#
+#     def get_average_rating(self, obj):
+#         # look up only “rating”-type Feedback for this product
+#         ct = ContentType.objects.get_for_model(obj)
+#         avg = (
+#             Feedback.objects
+#             .filter(
+#                 content_type=ct,
+#                 object_id=obj.service_id,
+#                 feedback_type="rating",
+#                 rating__isnull=False
+#             )
+#             .aggregate(a=Avg("rating"))["a"]
+#         )
+#         return float(avg or 0.0)
+#
+#     def create(self, validated_data):
+#         new_images = validated_data.pop("new_images", [])
+#         tag_objs = validated_data.pop("tags", [])
+#         attr_objs = validated_data.pop("attributes", [])
+#         region_objs = validated_data.pop("regions", [])
+#         district_objs = validated_data.pop("district", [])
+#         town_objs = validated_data.pop("town", [])
+#
+#         request = self.context.get("request")
+#         if not request or not request.user or not request.user.is_authenticated:
+#             raise serializers.ValidationError("Authentication credentials were not provided.")
+#         validated_data["provider"] = request.user
+#
+#         service = Service.objects.create(**validated_data)
+#         if tag_objs:
+#             service.tags.set(tag_objs)
+#         if attr_objs:
+#             service.attributes.set(attr_objs)
+#         service.regions.set(region_objs)
+#         service.district.set(district_objs)
+#         service.town.set(town_objs)
+#
+#         for img in new_images:
+#             ServiceImage.objects.create(service=service, image=img)
+#         return service
+#
+#     def update(self, instance, validated_data):
+#         new_images = validated_data.pop("new_images", [])
+#         tag_objs = validated_data.pop("tags", None)
+#         attr_objs = validated_data.pop("attributes", None)
+#         region_objs = validated_data.pop("regions", None)
+#         district_objs = validated_data.pop("district", None)
+#         town_objs = validated_data.pop("town", None)
+#
+#         instance = super().update(instance, validated_data)
+#
+#         if tag_objs is not None:
+#             instance.tags.set(tag_objs)
+#         if attr_objs is not None:
+#             instance.attributes.set(attr_objs)
+#         if region_objs is not None:
+#             instance.regions.set(region_objs)
+#         if district_objs is not None:
+#             instance.district.set(district_objs)
+#         if town_objs is not None:
+#             instance.town.set(town_objs)
+#
+#         for img in new_images:
+#             ServiceImage.objects.create(service=instance, image=img)
+#         return instance
 
+
+class VendorServiceMiniSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Service
-        fields = ("service_id", "title", "price", "is_active", "category")
+        model = VendorService
+        fields = ("vendor_service_id", "price", "is_active")
 
 
-class ServiceDetailSerializer(ServiceSerializer):
+class VendorServiceDetailSerializer(VendorServiceSerializer):
     related_services = serializers.SerializerMethodField()
     feedback = serializers.SerializerMethodField()
     rating_stats = serializers.SerializerMethodField()
 
-    class Meta(ServiceSerializer.Meta):
-        fields = ServiceSerializer.Meta.fields + (
+    class Meta(VendorServiceSerializer.Meta):
+        fields = VendorServiceSerializer.Meta.fields + (
             "related_services", "feedback", "rating_stats"
         )
 
@@ -675,15 +1105,15 @@ class ServiceDetailSerializer(ServiceSerializer):
 
     def get_related_services(self, obj):
         root = self._root_category(obj.category)
-        qs = Service.objects.filter(
+        qs = VendorService.objects.filter(
             category__in=[root] + list(root.children.all()),
             is_active=True
         ).exclude(pk=obj.pk).select_related("category").prefetch_related("images").order_by("?")[:8]
-        return ServiceMiniSerializer(qs, many=True, context=self.context).data
+        return VendorServiceSerializer(qs, many=True, context=self.context).data
 
     def get_feedback(self, obj):
         ct = ContentType.objects.get_for_model(obj)
-        qs = Feedback.objects.filter(content_type=ct, object_id=obj.service_id).order_by("-submitted_at")
+        qs = Feedback.objects.filter(content_type=ct, object_id=obj.vendor_service_id).order_by("-submitted_at")
         result = {}
         for key, _ in Feedback.FEEDBACK_TYPE_CHOICES:
             subset = qs.filter(feedback_type=key)
@@ -694,7 +1124,7 @@ class ServiceDetailSerializer(ServiceSerializer):
         ct = ContentType.objects.get_for_model(obj)
         qs = Feedback.objects.filter(
             content_type=ct,
-            object_id=obj.service_id,
+            object_id=obj.vendor_service_id,
             feedback_type="rating",
             rating__isnull=False
         )
@@ -704,21 +1134,3 @@ class ServiceDetailSerializer(ServiceSerializer):
         for row in dist_qs:
             dist[str(row["rating"])] = row["count"]
         return {"average": float(avg), "distribution": dist}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
