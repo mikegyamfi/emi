@@ -1,0 +1,40 @@
+name: Deploy to DO Droplet
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-emi
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start ssh-agent
+        uses: webfactory/ssh-agent@v0.8.1
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Deploy via SSH
+        env:
+          HOST: ${{ secrets.SERVER_IP }}
+          USER: deployer
+        run: |
+          ssh -o StrictHostKeyChecking=no $USER@$HOST << 'EOF'
+            set -e
+            cd /home/deployer/emi
+            git fetch origin main
+            git reset --hard origin/main
+            source .venv/bin/activate
+            pip install --upgrade pip
+            pip install -r requirements.txt
+            python manage.py migrate --noinput
+            python manage.py collectstatic --noinput
+            sudo systemctl restart gunicorn
+            sudo systemctl reload nginx
+          EOF
