@@ -37,6 +37,61 @@ INSTALLED_APPS = [
     'corsheaders'
 ]
 
+JAZZMIN_SETTINGS = {
+    # Title on the browser tab
+    "site_title": "EMI Admin",
+
+    # Title on the top left of the admin site
+    "site_header": "EMI Administration",
+
+    # Text on the login screen
+    "welcome_sign": "Welcome to the EMI Admin Portal",
+
+    # Brand text (next to the logo)
+    "site_brand": "EMI",
+
+    # Copyright on the footer
+    "copyright": "© 2025 DTT Technologies",
+
+    # The model you want to be searched for by default
+    "search_model": "auth.User",
+
+    # Navigation links to show in the top menu
+    "topmenu_links": [
+        {"name": "Return to Site",  "url": "/", "new_window": False},
+        {"name": "API Docs",        "url": "/api/schema/swagger-ui/", "new_window": True},
+        {"model": "account.CustomUser"},
+    ],
+
+    # Icons for apps and models using FontAwesome 5 free classes
+    "icons": {
+        "auth":                     "fas fa-users-cog",
+        "auth.user":                "fas fa-user",
+        "auth.group":               "fas fa-user-shield",
+        "account":                  "fas fa-id-card",
+        "cart_management":          "fas fa-shopping-cart",
+        "checkout_processing":      "fas fa-cash-register",
+        "business":                 "fas fa-briefcase",
+        "core":                     "fas fa-th",
+        "document_manager":         "fas fa-file-alt",
+        "product_service_management": "fas fa-box-open",
+        "market_intelligence":      "fas fa-chart-line",
+        "feedback":                 "fas fa-comment-dots",
+        "forum":                    "fas fa-comments",
+        "token_blacklist":          "fas fa-ban",
+    },
+
+    # Default parent / child icons
+    "default_icon_parents":   "fas fa-chevron-circle-right",
+    "default_icon_children":  "fas fa-circle",
+
+    # Related data in modals (instead of new pages)
+    "related_modal_active": True,
+
+    # Show the UI Builder at /admin/___?_jazzmin=ui-builder
+    "show_ui_builder": False,
+}
+
 # JWT Authentication settings
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=720),  # short‑lived
