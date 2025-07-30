@@ -115,6 +115,8 @@ class GenericProductAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "last_updated_at")
     date_hierarchy = "created_at"
 
+    prepopulated_fields = {"slug": ("name",)}
+
     def get_queryset(self, request):
         return (
             super()
@@ -198,6 +200,8 @@ class GenericServiceAdmin(admin.ModelAdmin):
     inlines = (ServiceImageInline,)
     readonly_fields = ("created_at", "updated_at")
     date_hierarchy = "created_at"
+
+    prepopulated_fields = {"slug": ("title",)}
 
     def get_queryset(self, request):
         return (

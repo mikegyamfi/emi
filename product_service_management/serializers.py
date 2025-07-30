@@ -137,21 +137,42 @@ class CategoryTreeSerializer(_ImageURLMixin, serializers.ModelSerializer):
 
 
 class CategoryDetailSerializer(CategoryTreeSerializer):
-    has_children = serializers.SerializerMethodField()
-    attached_to = serializers.SerializerMethodField()
-    parents = serializers.SerializerMethodField()
+    has_children     = serializers.SerializerMethodField()
+    attached_to      = serializers.SerializerMethodField()
+    parents          = serializers.SerializerMethodField()
+    vendor_products  = serializers.SerializerMethodField()
+    vendor_services  = serializers.SerializerMethodField()
 
     class Meta(CategoryTreeSerializer.Meta):
         fields = CategoryTreeSerializer.Meta.fields + (
-            "has_children", "attached_to", "parents"
+            "has_children", "attached_to", "parents",
+            # NEW ↓------------------------------------------------------------
+            "vendor_products", "vendor_services",
         )
 
+    # ---------- helpers --------------------------------------------------
+    def _collect_ids(self, node: Category) -> list[int]:
+        """Return *this* category’s id plus all active descendants’ ids."""
+        ids = [node.id]
+        for child in node.children.filter(is_active=True, type=node.type):
+            ids.extend(self._collect_ids(child))
+        return ids
+
+    # ---------- existing fields ------------------------------------------
     def get_has_children(self, obj) -> bool:
         return obj.children.filter(is_active=True, type=obj.type).exists()
 
     def get_attached_to(self, obj) -> str:
-        prod = obj.products.exists()
-        serv = obj.services.exists()
+        cat_ids   = self._collect_ids(obj)
+
+        prod_qs   = VendorProduct.objects.filter(product__category_id__in=cat_ids,
+                                                 is_active=True)
+        serv_qs   = VendorService.objects.filter(service__category_id__in=cat_ids,
+                                                 is_active=True)
+
+        prod = prod_qs.exists()
+        serv = serv_qs.exists()
+
         if prod and serv:
             return "both"
         if prod:
@@ -168,6 +189,31 @@ class CategoryDetailSerializer(CategoryTreeSerializer):
                 chain.append({"id": cur.id, "name": cur.name})
             cur = cur.parent
         return chain[::-1]
+
+    # ---------- NEW fields -----------------------------------------------
+    def get_vendor_products(self, obj):
+        if obj.type != Category.PRODUCT:
+            return None
+        cat_ids = self._collect_ids(obj)
+        qs      = VendorProduct.objects.filter(
+                    product__category_id__in=cat_ids, is_active=True
+                  ).select_related("product", "seller") \
+                   .prefetch_related("images")
+        return VendorProductSerializer(qs,
+                                       many=True,
+                                       context=self.context).data
+
+    def get_vendor_services(self, obj):
+        if obj.type != Category.SERVICE:
+            return None
+        cat_ids = self._collect_ids(obj)
+        qs      = VendorService.objects.filter(
+                    service__category_id__in=cat_ids, is_active=True
+                  ).select_related("service", "provider") \
+                   .prefetch_related("images")
+        return VendorServiceSerializer(qs,
+                                       many=True,
+                                       context=self.context).data
 
 
 # ───────────────────────────────────────────────────────────────
@@ -489,8 +535,8 @@ class VendorProductSerializer(serializers.ModelSerializer):
         source="status", write_only=True, required=False
     )
 
-    name = serializers.CharField(read_only=True)
-    description = serializers.CharField(read_only=True)
+    name = serializers.CharField(required=False, allow_blank=True)
+    description = serializers.CharField(required=False, allow_blank=True)
 
     stock_message = serializers.SerializerMethodField(read_only=True)
     average_rating = serializers.SerializerMethodField(read_only=True)
@@ -556,14 +602,22 @@ class VendorProductSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Invalid image file")
         return imgs
 
+    def _apply_default_text(self, validated_data, *, product):
+        if not validated_data.get("name"):
+            validated_data["name"] = product.name
+        if not validated_data.get("description"):
+            validated_data["description"] = product.description or ""
+
     def create(self, validated_data):
         images = validated_data.pop("new_images", [])
         tags = validated_data.pop("tags", [])
         attrs = validated_data.pop("attributes", [])
 
-        # inject the authenticated user as seller
         user = self.context["request"].user
         validated_data["seller"] = user
+
+        product_obj = validated_data["product"]
+        self._apply_default_text(validated_data, product=product_obj)
 
         with transaction.atomic():
             vp = VendorProduct.objects.create(**validated_data)
@@ -579,6 +633,10 @@ class VendorProductSerializer(serializers.ModelSerializer):
         imgs = data.pop("new_images", [])
         tags = data.pop("tags", None)
         attrs = data.pop("attributes", None)
+
+        product_obj = data.get("product", instance.product)
+        self._apply_default_text(data, product=product_obj)
+
         with transaction.atomic():
             instance = super().update(instance, data)
             if tags is not None:
@@ -828,6 +886,9 @@ class VendorServiceSerializer(serializers.ModelSerializer):
     average_rating = serializers.SerializerMethodField()
     object_type = serializers.SerializerMethodField()
 
+    name = serializers.CharField(required=False, allow_blank=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+
     is_remote = serializers.BooleanField(default=False)
 
     class Meta:
@@ -883,6 +944,16 @@ class VendorServiceSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Invalid image file")
         return imgs
 
+    def _apply_default_text(self, validated_data, *, service):
+        """
+        Copy title/description from GenericService only when the vendor
+        didn’t provide them (None, "", or not present).
+        """
+        if not validated_data.get("name"):
+            validated_data["name"] = service.title
+        if not validated_data.get("description"):
+            validated_data["description"] = service.description or ""
+
     def create(self, validated_data):
         new_images = validated_data.pop("new_images", [])
         tag_objs = validated_data.pop("tags", [])
@@ -895,6 +966,9 @@ class VendorServiceSerializer(serializers.ModelSerializer):
         if not request or not request.user or not request.user.is_authenticated:
             raise serializers.ValidationError("Authentication credentials were not provided.")
         validated_data["provider"] = request.user
+
+        service_obj = validated_data["service"]
+        self._apply_default_text(validated_data, service=service_obj)
 
         with transaction.atomic():
             service = VendorService.objects.create(**validated_data)
@@ -919,8 +993,11 @@ class VendorServiceSerializer(serializers.ModelSerializer):
         tag_objs = validated_data.pop("tags", None)
         attr_objs = validated_data.pop("attributes", None)
         region_objs = validated_data.pop("regions", None)
-        district_objs = validated_data.pop("districts", None)  # <— plural!
+        district_objs = validated_data.pop("districts", None)
         town_objs = validated_data.pop("towns", None)
+
+        service_obj = validated_data.get("service", instance.service)
+        self._apply_default_text(validated_data, service=service_obj)
 
         with transaction.atomic():
             instance = super().update(instance, validated_data)
